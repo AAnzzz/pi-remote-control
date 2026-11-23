@@ -9,8 +9,8 @@ import { x25519, x25519PublicKey, isAllZeroBytes } from "./x25519.mjs";
 export const E2EE_ALG = "X25519-HKDF-SHA256-AES256GCM";
 export const PROTOCOL_VERSION = 1;
 
-const textEncoder = new TextEncoder();
-const textDecoder = new TextDecoder();
+let cachedEncoder = null;
+let cachedDecoder = null;
 
 function getCrypto(override) {
   const c = override || globalThis.crypto;
@@ -21,11 +21,81 @@ function getCrypto(override) {
 }
 
 export function utf8ToBytes(str) {
-  return textEncoder.encode(str);
+  if (typeof TextEncoder === "function") {
+    cachedEncoder ??= new TextEncoder();
+    return cachedEncoder.encode(str);
+  }
+  const s = String(str ?? "");
+  const out = [];
+  for (let i = 0; i < s.length; i++) {
+    let cp = s.charCodeAt(i);
+    if (cp < 0x80) {
+      out.push(cp);
+    } else if (cp < 0x800) {
+      out.push(0xc0 | (cp >> 6), 0x80 | (cp & 0x3f));
+    } else if (cp >= 0xd800 && cp <= 0xdbff && i + 1 < s.length) {
+      const next = s.charCodeAt(i + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        cp = 0x10000 + ((cp - 0xd800) << 10) + (next - 0xdc00);
+        i += 1;
+        out.push(
+          0xf0 | (cp >> 18),
+          0x80 | ((cp >> 12) & 0x3f),
+          0x80 | ((cp >> 6) & 0x3f),
+          0x80 | (cp & 0x3f)
+        );
+      } else {
+        out.push(0xef, 0xbf, 0xbd);
+      }
+    } else if (cp >= 0xd800 && cp <= 0xdfff) {
+      out.push(0xef, 0xbf, 0xbd);
+    } else {
+      out.push(0xe0 | (cp >> 12), 0x80 | ((cp >> 6) & 0x3f), 0x80 | (cp & 0x3f));
+    }
+  }
+  return new Uint8Array(out);
 }
 
 export function bytesToUtf8(bytes) {
-  return textDecoder.decode(bytes);
+  if (typeof TextDecoder === "function") {
+    cachedDecoder ??= new TextDecoder();
+    return cachedDecoder.decode(bytes);
+  }
+  const view = ArrayBuffer.isView(bytes)
+    ? new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+    : new Uint8Array(bytes);
+  let out = "";
+  let i = 0;
+  while (i < view.length) {
+    const b0 = view[i++];
+    if (b0 < 0x80) {
+      out += String.fromCharCode(b0);
+    } else if ((b0 & 0xe0) === 0xc0 && i < view.length) {
+      const b1 = view[i++];
+      out += (b1 & 0xc0) === 0x80 ? String.fromCharCode(((b0 & 0x1f) << 6) | (b1 & 0x3f)) : "\ufffd";
+    } else if ((b0 & 0xf0) === 0xe0 && i + 1 < view.length) {
+      const b1 = view[i++];
+      const b2 = view[i++];
+      out +=
+        (b1 & 0xc0) === 0x80 && (b2 & 0xc0) === 0x80
+          ? String.fromCharCode(((b0 & 0x0f) << 12) | ((b1 & 0x3f) << 6) | (b2 & 0x3f))
+          : "\ufffd";
+    } else if ((b0 & 0xf8) === 0xf0 && i + 2 < view.length) {
+      const b1 = view[i++];
+      const b2 = view[i++];
+      const b3 = view[i++];
+      const cp = ((b0 & 0x07) << 18) | ((b1 & 0x3f) << 12) | ((b2 & 0x3f) << 6) | (b3 & 0x3f);
+      if ((b1 & 0xc0) === 0x80 && (b2 & 0xc0) === 0x80 && (b3 & 0xc0) === 0x80 && cp >= 0x10000 && cp <= 0x10ffff) {
+        const u = cp - 0x10000;
+        out += String.fromCharCode(0xd800 | (u >> 10), 0xdc00 | (u & 0x3ff));
+      } else {
+        out += "\ufffd";
+      }
+    } else {
+      out += "\ufffd";
+    }
+  }
+  return out;
 }
 
 export function concatBytes(...arrays) {

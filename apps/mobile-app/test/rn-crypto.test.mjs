@@ -2,10 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   computeInviteProof, verifyInviteProof, derivePairingMaterial, encryptEnvelope, decryptEnvelope,
-  generateX25519KeyPair, computeSharedSecret, ReplayWindow,
+  generateX25519KeyPair, computeSharedSecret, ReplayWindow, utf8ToBytes, bytesToUtf8,
 } from "@pi-remote/protocol";
-import { createNobleWebCrypto } from "../src/lib/rnCryptoCore.mjs";
-
+import { createNobleWebCrypto, TextEncoderPolyfill, TextDecoderPolyfill } from "../src/lib/rnCryptoCore.mjs";
 const native = globalThis.crypto;
 const mobile = createNobleWebCrypto(native.getRandomValues.bind(native));
 const host = generateX25519KeyPair(native);
@@ -74,3 +73,67 @@ for (const direction of ["h2c", "c2h"]) {
     }
   });
 }
+
+test("TextEncoderPolyfill & TextDecoderPolyfill match native UTF-8 byte-for-byte", () => {
+  const nativeEnc = new TextEncoder();
+  const nativeDec = new TextDecoder();
+  const polyEnc = new TextEncoderPolyfill();
+  const polyDec = new TextDecoderPolyfill();
+  const samples = [
+    "",
+    "ASCII-only 0123456789 !@#",
+    "中文测试：智能体 / 目标 / 规划 · 端到端加密",
+    "Emoji 🚀🔐🛡️ surrogate pairs 𐐷 and mixed 汉字",
+    "Lone surrogates: \uD800 middle \uDFFF end \uD83D",
+  ];
+  for (const s of samples) {
+    const expected = nativeEnc.encode(s);
+    const actual = polyEnc.encode(s);
+    assert.deepEqual(actual, expected);
+    assert.equal(polyDec.decode(actual), nativeDec.decode(expected));
+  }
+  const sub = new Uint8Array([0, ...nativeEnc.encode("hi你🚀"), 0]).subarray(1, -1);
+  assert.equal(polyDec.decode(sub), "hi你🚀");
+});
+
+test("protocol utf8 helpers & envelope roundtrip work when global TextEncoder is absent (Hermes)", async () => {
+  const savedTE = globalThis.TextEncoder;
+  const savedTD = globalThis.TextDecoder;
+  try {
+    delete globalThis.TextEncoder;
+    delete globalThis.TextDecoder;
+    const text = "PI-Desktop 远程控制 🚀";
+    const raw = utf8ToBytes(text);
+    assert.equal(bytesToUtf8(raw), text);
+
+    const { mobileMaterial } = await pairingKeys();
+    const env = await encryptEnvelope(
+      {
+        hostId: invite.hostId,
+        deviceId: invite.deviceId,
+        keyId: mobileMaterial.keyId,
+        keyBytes: mobileMaterial.sessionKey,
+        direction: "c2h",
+        seq: 1,
+        payload: { msg: text },
+      },
+      mobile
+    );
+    const dec = await decryptEnvelope(
+      {
+        hostId: invite.hostId,
+        deviceId: invite.deviceId,
+        keyId: mobileMaterial.keyId,
+        keyBytes: mobileMaterial.sessionKey,
+        expectedDirection: "c2h",
+        envelope: env,
+        replayWindow: new ReplayWindow(),
+      },
+      mobile
+    );
+    assert.deepEqual(dec, { msg: text });
+  } finally {
+    globalThis.TextEncoder = savedTE;
+    globalThis.TextDecoder = savedTD;
+  }
+});

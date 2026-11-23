@@ -244,10 +244,12 @@ function MainConsole() {
   }
 
   useEffect(() => {
-    Promise.all([loadPairedHosts(), loadThemePreference()]).then(([savedHosts, savedTheme]) => {
-      setHosts(savedHosts);
-      setThemeMode(savedTheme);
-    });
+    Promise.all([loadPairedHosts(), loadThemePreference()])
+      .then(([savedHosts, savedTheme]) => {
+        setHosts(savedHosts);
+        setThemeMode(savedTheme);
+      })
+      .catch(() => {});
     return () => {
       clientRef.current?.disconnect();
     };
@@ -1275,28 +1277,69 @@ function MainConsole() {
         onClose={() => setReviewItem(null)}
       />
 
-      <QrScannerModal
-        visible={qrOpen}
-        palette={palette}
-        onClose={() => setQrOpen(false)}
-        onScanned={(raw) => {
-          setQrOpen(false);
-          try {
-            const parsed = JSON.parse(raw) as PairingInvite;
-            handlePairInvite(parsed);
-          } catch {
-            showToast("二维码不是有效的 PI-Desktop 配对码");
-          }
-        }}
-      />
+      {qrOpen ? (
+        <QrScannerModal
+          visible={qrOpen}
+          palette={palette}
+          onClose={() => setQrOpen(false)}
+          onScanned={(raw) => {
+            setQrOpen(false);
+            try {
+              const parsed = JSON.parse(raw) as PairingInvite;
+              handlePairInvite(parsed);
+            } catch {
+              showToast("二维码不是有效的 PI-Desktop 配对码");
+            }
+          }}
+        />
+      ) : null}
     </SafeAreaView>
   );
+}
+
+class AppErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { error: Error | null }
+> {
+  state: { error: Error | null } = { error: null };
+
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <SafeAreaView style={{ flex: 1, backgroundColor: "#0D0D0D", padding: 24, justifyContent: "center", gap: 14 }}>
+          <Text style={{ color: "#FFFFFF", fontSize: 18, fontWeight: "700" }}>PI Remote 界面异常</Text>
+          <Text style={{ color: "#9B9B9B", fontSize: 13, lineHeight: 20 }}>
+            {this.state.error.message || String(this.state.error)}
+          </Text>
+          <TouchableOpacity
+            style={{
+              alignSelf: "flex-start",
+              backgroundColor: "#FFFFFF",
+              paddingHorizontal: 16,
+              paddingVertical: 10,
+              borderRadius: 10,
+            }}
+            onPress={() => this.setState({ error: null })}
+          >
+            <Text style={{ color: "#0D0D0D", fontWeight: "700", fontSize: 13 }}>重试恢复</Text>
+          </TouchableOpacity>
+        </SafeAreaView>
+      );
+    }
+    return this.props.children;
+  }
 }
 
 export default function App() {
   return (
     <SafeAreaProvider>
-      <MainConsole />
+      <AppErrorBoundary>
+        <MainConsole />
+      </AppErrorBoundary>
     </SafeAreaProvider>
   );
 }
