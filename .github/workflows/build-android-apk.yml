@@ -52,7 +52,7 @@ jobs:
           # SDK 53's template explicitly signs release with signingConfigs.debug.
           sed -i '/^        release {$/,/^        }$/ s/signingConfig signingConfigs.debug/signingConfig null/' app/build.gradle
           chmod +x gradlew
-          ./gradlew :app:assembleRelease --no-daemon
+          ./gradlew :app:assembleRelease -PreactNativeArchitectures=arm64-v8a --no-daemon
           test -s app/build/outputs/apk/release/app-release-unsigned.apk
 
       - name: Sign and verify APK

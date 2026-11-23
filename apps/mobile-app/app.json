@@ -27,7 +27,15 @@
       ["expo-camera", { "cameraPermission": "Scan PI-Desktop pairing QR codes." }],
       "expo-secure-store",
       ["expo-local-authentication", { "faceIDPermission": "Confirm high-risk tool approvals." }],
-      ["expo-build-properties", { "android": { "usesCleartextTraffic": true } }]
+      ["expo-build-properties", {
+        "android": {
+          "usesCleartextTraffic": true,
+          "enableProguardInReleaseBuilds": true,
+          "enableShrinkResourcesInReleaseBuilds": true,
+          "useLegacyPackaging": true,
+          "enableBundleCompression": true
+        }
+      }]
     ]
   }
 }
