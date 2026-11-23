@@ -16,7 +16,7 @@
     },
     "android": {
       "package": "com.piremote.companion",
-      "versionCode": 2,
+      "versionCode": 3,
       "permissions": [
         "CAMERA",
         "USE_BIOMETRIC",

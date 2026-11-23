@@ -38,13 +38,18 @@ jobs:
           yes | "$sdkmgr" --licenses >/dev/null 2>&1 || true
           "$sdkmgr" "platform-tools" "platforms;android-35" "build-tools;35.0.0" >/dev/null
 
-      - run: npm --prefix apps/mobile-app install --include=dev
+      - run: npm --prefix apps/mobile-app ci --workspaces=false --include=dev
       - run: node --test apps/mobile-app/test/rn-crypto.test.mjs
       - run: npm --prefix apps/mobile-app run typecheck
+      - name: Verify Android native autolinking modules
+        working-directory: apps/mobile-app
+        run: |
+          set -euo pipefail
+          node node_modules/expo/bin/autolinking resolve -p android --json | node -e "const m=JSON.parse(require('fs').readFileSync(0,'utf8')).modules; const names=new Set(m.map(x=>x.packageName)); const required=['expo','expo-modules-core','expo-asset','expo-constants','expo-file-system','expo-font','expo-keep-awake','expo-camera','expo-crypto','expo-haptics','expo-local-authentication','expo-secure-store','expo-system-ui']; for (const n of required) if (!names.has(n)) throw new Error('Missing Android Expo module: '+n); console.log('Verified '+names.size+' Expo Android modules');"
+          node node_modules/expo/bin/autolinking react-native-config -p android --json | node -e "const d=JSON.parse(require('fs').readFileSync(0,'utf8')).dependencies; const pkg=d?.['react-native-safe-area-context']?.platforms?.android?.packageInstance; if (pkg !== 'new SafeAreaContextPackage()') throw new Error('Unexpected SafeAreaContextPackage: '+pkg); console.log('Verified '+pkg);"
       - name: Generate Android project
         working-directory: apps/mobile-app
         run: npx expo prebuild --platform android --clean --non-interactive --no-install --skip-dependency-update react-native
-
       - name: Assemble aligned, unsigned release APK
         working-directory: apps/mobile-app/android
         run: |
