@@ -18,6 +18,7 @@
       "package": "com.piremote.companion",
       "versionCode": 2,
       "permissions": [
+        "CAMERA",
         "USE_BIOMETRIC",
         "INTERNET"
       ],
