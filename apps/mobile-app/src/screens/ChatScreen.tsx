@@ -20,7 +20,6 @@ import { MODE_LABELS, PERM_LABELS, THINK_LABELS, type CodexPalette } from "../th
 
 interface Props {
   palette: CodexPalette;
-  demoMode: boolean;
   hasHosts: boolean;
   session: SessionSummary | null;
   defaultPermissionMode: string;
@@ -33,8 +32,6 @@ interface Props {
   backgroundTasks: BackgroundTaskItem[];
   sessionPending: PendingApprovalItem[];
   isRunning: boolean;
-  onExitDemo: () => void;
-  onEnterDemo: () => void;
   onGoPair: () => void;
   onSendPrompt: (text: string) => void;
   onOpenModePicker: () => void;
@@ -82,7 +79,6 @@ function renderRichTextSegments(text: string, palette: CodexPalette) {
 
 export function ChatScreen({
   palette,
-  demoMode,
   hasHosts,
   session,
   defaultPermissionMode,
@@ -95,8 +91,6 @@ export function ChatScreen({
   backgroundTasks,
   sessionPending,
   isRunning,
-  onExitDemo,
-  onEnterDemo,
   onGoPair,
   onSendPrompt,
   onOpenModePicker,
@@ -273,19 +267,6 @@ export function ChatScreen({
           if (isRunning) scrollRef.current?.scrollToEnd({ animated: false });
         }}
       >
-        {demoMode ? (
-          <View style={[styles.noticeBar, { backgroundColor: palette.surface2, borderColor: palette.border }]}>
-            <Text style={{ color: palette.textSecondary, fontSize: 12, flex: 1 }}>
-              演示模式 · 可直接体验模式/权限/模型与任务坞
-            </Text>
-            <TouchableOpacity
-              style={[styles.smBtn, { backgroundColor: palette.surface, borderColor: palette.borderStrong }]}
-              onPress={onExitDemo}
-            >
-              <Text style={{ color: palette.text, fontSize: 11.5, fontWeight: "600" }}>退出</Text>
-            </TouchableOpacity>
-          </View>
-        ) : null}
 
         {sessionPending.length > 0 ? (
           <TouchableOpacity
@@ -316,14 +297,8 @@ export function ChatScreen({
                 onPress={onGoPair}
               >
                 <Text style={{ color: palette.accentFg, fontWeight: "700", fontSize: 13 }}>
-                  {hasHosts ? "连接已配对主机" : "配对桌面主机"}
+                  {hasHosts ? "连接已配对主机" : "扫码配对桌面主机"}
                 </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.outlineBtn, { borderColor: palette.borderStrong, backgroundColor: palette.surface }]}
-                onPress={onEnterDemo}
-              >
-                <Text style={{ color: palette.text, fontWeight: "600", fontSize: 13 }}>体验演示</Text>
               </TouchableOpacity>
             </View>
           </View>

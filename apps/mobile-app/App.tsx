@@ -72,24 +72,6 @@ const DEFAULT_SETTINGS: HostSettingsSummary = {
   defaultThinkingLevel: "high",
 };
 
-const DEMO_PATCH: DiffFilePatch = {
-  path: "apps/pi-plugin/src/host-adapter.mjs",
-  status: "M",
-  truncated: false,
-  binary: false,
-  hunks: [
-    {
-      header: "@@ -628,6 +628,10 @@ export class PiHostAdapter",
-      lines: [
-        { type: "context", oldLine: 628, newLine: 628, text: "  async configureSession({ sessionId, mode, permissionMode, providerId, modelId }) {" },
-        { type: "add", oldLine: null, newLine: 629, text: "    const res = await this._desktopInvoke(\"session/configure\", [sessionId, config], {" },
-        { type: "add", oldLine: null, newLine: 630, text: "      confirm: true, preferMcp: true," },
-        { type: "add", oldLine: null, newLine: 631, text: "    });" },
-        { type: "context", oldLine: 632, newLine: 632, text: "    return { applied: true, session: res?.session };" },
-      ],
-    },
-  ],
-};
 
 function MainConsole() {
   const [tab, setTab] = useState<TabName>("chat");
@@ -101,7 +83,6 @@ function MainConsole() {
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const [demoMode, setDemoMode] = useState(false);
   const [hosts, setHosts] = useState<PairedHostRecord[]>([]);
   const [activeHostId, setActiveHostId] = useState<string | null>(null);
   const [connState, setConnState] = useState<ConnectionState>("offline");
@@ -169,7 +150,7 @@ function MainConsole() {
       useNativeDriver: true,
     }).start();
 
-    if (!demoMode && (connState === "online_direct" || connState === "online_relay")) {
+    if (connState === "online_direct" || connState === "online_relay") {
       if (next === "diff" && activeProject) refreshDiff(activeProject.path).catch(() => {});
       if (next === "inbox") refreshPending().catch(() => {});
       if (next === "tasks") refreshTasks(activeSession?.id).catch(() => {});
@@ -261,7 +242,6 @@ function MainConsole() {
   };
 
   const refreshProviders = async (refreshCatalog = false) => {
-    if (demoMode) return;
     const client = clientRef.current!;
     const [provRes, setRes] = await Promise.all([
       (refreshCatalog ? client.refreshModelCatalog() : client.listProviders()).catch(() => ({ providers: [] })),
@@ -272,13 +252,11 @@ function MainConsole() {
   };
 
   const refreshPending = async () => {
-    if (demoMode) return;
     const res = await clientRef.current!.listPending().catch(() => ({ items: [] as PendingApprovalItem[] }));
     setPendingItems(res.items || []);
   };
 
   const refreshTasks = async (sessionId?: string) => {
-    if (demoMode) return;
     const res = await clientRef.current!.listTasks(sessionId).catch(() => null);
     if (!res) return;
     setTodos(res.todos || []);
@@ -287,7 +265,6 @@ function MainConsole() {
   };
 
   const refreshDiff = async (projectPath: string) => {
-    if (demoMode) return;
     const res = await clientRef.current!
       .getDiffSummary(projectPath)
       .catch(() => ({ isRepo: false, branch: "", files: [] as DiffFileSummary[] }));
@@ -300,10 +277,6 @@ function MainConsole() {
 
   const handleSelectDiffFile = async (filePath: string, overrideProjPath?: string) => {
     setSelectedDiffPath(filePath);
-    if (demoMode) {
-      setActivePatch(DEMO_PATCH);
-      return;
-    }
     const pPath = overrideProjPath || activeProject?.path;
     if (!pPath) return;
     setLoadingDiffFile(filePath);
@@ -316,10 +289,6 @@ function MainConsole() {
   };
 
   const selectSession = async (s: SessionSummary) => {
-    if (demoMode) {
-      setActiveSession(s);
-      return;
-    }
     const detail = await clientRef.current!.getSession(s.id);
     setActiveSession(detail.session);
     setMessages(detail.messages || []);
@@ -332,7 +301,6 @@ function MainConsole() {
   };
 
   const hydrateHost = async () => {
-    setDemoMode(false);
     const client = clientRef.current!;
     const info = await client.getHostInfo();
     setHostInfo(info);
@@ -404,17 +372,6 @@ function MainConsole() {
       return;
     }
     Haptics.selectionAsync().catch(() => {});
-    if (demoMode) {
-      const updated: SessionSummary = {
-        ...activeSession,
-        ...patch,
-        model: patch.modelId || activeSession.model,
-      };
-      setActiveSession(updated);
-      setSessions((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
-      showToast("已切换演示会话配置");
-      return;
-    }
     try {
       const res = await clientRef.current!.configureSession({
         sessionId: activeSession.id,
@@ -443,26 +400,6 @@ function MainConsole() {
     const mode = activeSession?.mode || hostSettings.defaultMode || "agent";
     const providerId = activeSession?.providerId || hostSettings.defaultProviderId || undefined;
     const modelId = activeSession?.modelId || hostSettings.defaultModelId || undefined;
-    if (demoMode && activeProject) {
-      const created: SessionSummary = {
-        id: `demo_${Date.now()}`,
-        title: "新建演示会话",
-        projectPath: activeProject.path,
-        status: "idle",
-        updatedAt: new Date().toISOString(),
-        mode,
-        permissionMode: hostSettings.defaultPermissionMode,
-        providerId,
-        modelId,
-        model: modelId || "gpt-5.4",
-      };
-      setSessions((prev) => [created, ...prev]);
-      setActiveSession(created);
-      setMessages([]);
-      setTodos([]);
-      setSwitcherOpen(false);
-      return;
-    }
     if (!activeProject) return;
     const created = await clientRef.current!.createSession(activeProject.path, "Remote Session", {
       mode,
@@ -481,33 +418,6 @@ function MainConsole() {
       ...prev,
       { id: `local_${Date.now()}`, role: "user", content: text, createdAt: new Date().toISOString() },
     ]);
-
-    if (demoMode) {
-      setIsRunning(true);
-      const reply = `收到指令：「${text}」\n\n当前配置：**${MODE_LABELS[activeSession.mode || "agent"]}模式** · **${
-        PERM_LABELS[
-          !activeSession.permissionMode || activeSession.permissionMode === "inherit"
-            ? hostSettings.defaultPermissionMode
-            : activeSession.permissionMode
-        ]
-      }** · ${activeSession.modelId || "gpt-5.4"}。`;
-      let i = 0;
-      const tm = setInterval(() => {
-        i += 8;
-        setStreamingText(reply.slice(0, i));
-        if (i >= reply.length) {
-          clearInterval(tm);
-          setStreamingText("");
-          setMessages((prev) => [
-            ...prev,
-            { id: `demo_a_${Date.now()}`, role: "assistant", content: reply, createdAt: new Date().toISOString() },
-          ]);
-          setIsRunning(false);
-        }
-      }, 35);
-      return;
-    }
-
     setIsRunning(true);
     try {
       await clientRef.current!.startTurn(activeSession.id, text);
@@ -520,12 +430,6 @@ function MainConsole() {
   const handleAbort = async () => {
     if (!activeSession) return;
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
-    if (demoMode) {
-      setIsRunning(false);
-      setStreamingText("");
-      showToast("已停止演示回合");
-      return;
-    }
     await clientRef.current!.abortTurn(activeSession.id, activeSession.activeTurnId);
     setIsRunning(false);
     showToast("已发送停止指令");
@@ -536,12 +440,6 @@ function MainConsole() {
     decision: "allow" | "deny",
     scope: "once" | "session"
   ) => {
-    if (demoMode) {
-      setPendingItems((prev) => prev.filter((p) => p.id !== item.id));
-      setReviewItem(null);
-      showToast(decision === "allow" ? "已单次放行" : "已拒绝操作");
-      return;
-    }
     setApprovalSubmitting(true);
     setApprovalFeedback(null);
     try {
@@ -560,178 +458,7 @@ function MainConsole() {
     }
   };
 
-  const enterDemoMode = () => {
-    setDemoMode(true);
-    const demoProjects: ProjectEntry[] = [
-      { path: "D:/work/pi app", name: "pi-remote-app", active: true },
-      { path: "D:/work/edge-relay", name: "edge-relay", active: false },
-    ];
-    setHostInfo({
-      hostId: "host_codex_demo",
-      hostName: "Workstation-Win11",
-      pluginVersion: "0.1.5",
-      capabilityMode: "mcp-full",
-      epoch: "demo",
-      currentSeq: 1,
-      projects: demoProjects,
-    });
-    setHostSettings({
-      defaultMode: "agent",
-      defaultPermissionMode: "accept-edits",
-      defaultProviderId: "openai",
-      defaultModelId: "gpt-5.4",
-      defaultThinkingLevel: "high",
-    });
-    setProviders([
-      {
-        id: "openai",
-        name: "OpenAI Codex",
-        apiStyle: "responses",
-        baseUrl: "https://api.openai.com/v1",
-        enabled: true,
-        hasApiKey: true,
-        defaultModelId: "gpt-5.4",
-        models: [
-          { id: "gpt-5.4", name: "GPT-5.4", contextWindow: 272000, reasoning: true, vision: true },
-          { id: "gpt-5.4-mini", name: "GPT-5.4 Mini", contextWindow: 272000, reasoning: true, vision: true },
-        ],
-      },
-      {
-        id: "anthropic",
-        name: "Anthropic",
-        apiStyle: "messages",
-        baseUrl: "https://api.anthropic.com",
-        enabled: true,
-        hasApiKey: true,
-        defaultModelId: "claude-sonnet-4",
-        models: [
-          { id: "claude-sonnet-4", name: "Claude Sonnet 4", contextWindow: 200000, reasoning: true, vision: true },
-          { id: "claude-opus-4", name: "Claude Opus 4", contextWindow: 200000, reasoning: true, vision: true },
-        ],
-      },
-    ]);
-    setActiveProject(demoProjects[0]);
-    const demoSessions: SessionSummary[] = [
-      {
-        id: "demo_s1",
-        title: "重构远程控端与原生 APK",
-        projectPath: demoProjects[0].path,
-        status: "idle",
-        updatedAt: new Date().toISOString(),
-        mode: "agent",
-        permissionMode: "accept-edits",
-        providerId: "openai",
-        modelId: "gpt-5.4",
-        model: "gpt-5.4",
-        thinkingLevel: "high",
-      },
-      {
-        id: "demo_s2",
-        title: "规划盲中继灰度方案",
-        projectPath: demoProjects[0].path,
-        status: "idle",
-        updatedAt: new Date().toISOString(),
-        mode: "plan",
-        permissionMode: "ask",
-        providerId: "anthropic",
-        modelId: "claude-sonnet-4",
-        model: "claude-sonnet-4",
-        thinkingLevel: "medium",
-      },
-    ];
-    setSessions(demoSessions);
-    setActiveSession(demoSessions[0]);
-    setMessages([
-      {
-        id: "dm_1",
-        role: "user",
-        content: "接入智能体/目标/规划三模式、权限切换、供应商模型与真实待办后台任务。",
-        createdAt: new Date().toISOString(),
-      },
-      {
-        id: "dm_t1",
-        role: "tool",
-        content: "",
-        toolName: "Bash",
-        toolStatus: "success",
-        toolArgsPreview: "{\"command\":\"npm test\"}",
-        isProcessStep: true,
-        createdAt: new Date().toISOString(),
-      },
-      {
-        id: "dm_2",
-        role: "assistant",
-        thinking: "所有端到端加密与单元测试通过，整理简洁结论。",
-        content:
-          "已同步为 Codex 极简单色原生应用，底部可直接切换模式（智能体 / 目标 / 规划）、权限（每次询问 / 允许编辑 / 全自动）和按供应商分组的模型。\n\n```ts\nawait client.configureSession({\n  sessionId,\n  mode: \"plan\",\n  permissionMode: \"accept-edits\",\n  modelId: \"gpt-5.4\",\n});\n```",
-        createdAt: new Date().toISOString(),
-      },
-    ]);
-    setTodos([
-      { content: "同步 Hermes 纯 JS 密码学适配层与 SecureStore 持久化", status: "completed", priority: "high" },
-      { content: "重写 Codex 极简单色原生 UI 五大页签", status: "in_progress", priority: "high" },
-      { content: "通过云端工作流打包签名 Android Release APK", status: "pending", priority: "high" },
-    ]);
-    setBackgroundTasks([
-      {
-        id: "cf_relay_live",
-        kind: "bash",
-        title: "Cloudflare Workers 公益盲中继",
-        command: "wss://relay.example.com/ws",
-        state: "running",
-        outputPreview: "pi-relay.v1 online (zero-knowledge DO hibernation)",
-      },
-    ]);
-    setScheduledTasks([
-      {
-        id: "sched_1",
-        title: "每日协议与插件体检",
-        cadence: "每天 02:00",
-        enabled: true,
-        nextRunAt: "明天 02:00",
-        lastStatus: "success",
-      },
-    ]);
-    setPendingItems([
-      {
-        id: "demo_p1",
-        kind: "permission",
-        sessionId: "demo_s1",
-        sessionTitle: "重构远程控端与原生 APK",
-        risk: "high",
-        title: "Bash · 构建盲中继镜像",
-        summary: "Agent 请求运行工作区构建命令。",
-        argsPreview: "{\"command\":\"docker build -t pi-relay apps/relay/go\"}",
-        requiresDesktopConfirm: false,
-        createdAt: new Date().toISOString(),
-      },
-    ]);
-    setDiffBranch("main");
-    setDiffFiles([{ path: "apps/pi-plugin/src/host-adapter.mjs", status: "M", additions: 3, deletions: 0, staged: false }]);
-    setSelectedDiffPath("apps/pi-plugin/src/host-adapter.mjs");
-    setActivePatch(DEMO_PATCH);
-    switchTab("chat");
-    showToast("已进入 Codex 交互演示");
-  };
-
-  const exitDemoMode = () => {
-    setDemoMode(false);
-    setHostInfo(null);
-    setActiveProject(null);
-    setActiveSession(null);
-    setSessions([]);
-    setMessages([]);
-    setTodos([]);
-    setBackgroundTasks([]);
-    setScheduledTasks([]);
-    setProviders([]);
-    setPendingItems([]);
-    setDiffFiles([]);
-    setActivePatch(null);
-    switchTab("settings", "hosts");
-  };
-
-  const isOnline = demoMode || connState === "online_direct" || connState === "online_relay";
+  const isOnline = connState === "online_direct" || connState === "online_relay";
   const activeTaskCount =
     todos.filter((t) => t.status === "pending" || t.status === "in_progress").length +
     backgroundTasks.filter((t) => t.state === "running").length;
@@ -777,7 +504,7 @@ function MainConsole() {
             <Text numberOfLines={1} style={[styles.headerSub, { color: palette.textTertiary }]}>
               {activeSession
                 ? `${hostInfo?.hostName || "主机"} · ${activeProject?.name || "工作区"} · ${
-                    demoMode ? "演示" : connState === "online_relay" ? "盲中继 E2EE" : "直连 E2EE"
+                    connState === "online_relay" ? "盲中继 E2EE" : "直连 E2EE"
                   }`
                 : hosts.length > 0
                 ? `已保存 ${hosts.length} 台主机 · 前往设置连接`
@@ -807,7 +534,6 @@ function MainConsole() {
         {tab === "chat" ? (
           <ChatScreen
             palette={palette}
-            demoMode={demoMode}
             hasHosts={hosts.length > 0}
             session={activeSession}
             defaultPermissionMode={hostSettings.defaultPermissionMode}
@@ -820,8 +546,6 @@ function MainConsole() {
             backgroundTasks={backgroundTasks}
             sessionPending={activeSession ? pendingItems.filter((p) => p.sessionId === activeSession.id) : []}
             isRunning={isRunning}
-            onExitDemo={exitDemoMode}
-            onEnterDemo={enterDemoMode}
             onGoPair={() => switchTab("settings", "hosts")}
             onSendPrompt={handleSendPrompt}
             onOpenModePicker={() => setModeSheetOpen(true)}
@@ -902,7 +626,6 @@ function MainConsole() {
             onSelectModel={(pid, mid) => configureActiveSession({ providerId: pid, modelId: mid })}
             onPairInvite={handlePairInvite}
             onOpenQrScanner={() => setQrOpen(true)}
-            onEnterDemo={enterDemoMode}
             onConnectHost={handleConnectHost}
             onRemoveHost={handleRemoveHost}
             onGoChat={() => switchTab("chat")}
@@ -1012,11 +735,9 @@ function MainConsole() {
                     ]}
                     onPress={async () => {
                       setActiveProject(p);
-                      if (!demoMode) {
-                        const res = await clientRef.current!.listSessions(p.path);
-                        setSessions(res.sessions || []);
-                        refreshDiff(p.path).catch(() => {});
-                      }
+                      const res = await clientRef.current!.listSessions(p.path);
+                      setSessions(res.sessions || []);
+                      refreshDiff(p.path).catch(() => {});
                     }}
                   >
                     <Text style={{ color: active ? palette.accentFg : palette.textSecondary, fontSize: 12, fontWeight: "600" }}>

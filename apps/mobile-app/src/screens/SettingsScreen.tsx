@@ -21,7 +21,6 @@ interface Props {
   onSelectModel: (providerId: string, modelId: string) => void;
   onPairInvite: (invite: PairingInvite) => void;
   onOpenQrScanner: () => void;
-  onEnterDemo: () => void;
   onConnectHost: (host: PairedHostRecord) => void;
   onRemoveHost: (hostId: string) => void;
   onGoChat: () => void;
@@ -44,7 +43,6 @@ export function SettingsScreen({
   onSelectModel,
   onPairInvite,
   onOpenQrScanner,
-  onEnterDemo,
   onConnectHost,
   onRemoveHost,
   onGoChat,
@@ -297,20 +295,12 @@ export function SettingsScreen({
               </View>
             </View>
 
-            <View style={styles.row}>
-              <TouchableOpacity
-                style={[styles.primaryBtn, { backgroundColor: palette.accent, flex: 1 }]}
-                onPress={onOpenQrScanner}
-              >
-                <Text style={{ color: palette.accentFg, fontWeight: "700", fontSize: 13 }}>扫码配对</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.outlineBtn, { borderColor: palette.borderStrong, backgroundColor: palette.surface }]}
-                onPress={onEnterDemo}
-              >
-                <Text style={{ color: palette.text, fontWeight: "600", fontSize: 13 }}>交互演示</Text>
-              </TouchableOpacity>
-            </View>
+            <TouchableOpacity
+              style={[styles.primaryBtn, { backgroundColor: palette.accent }]}
+              onPress={onOpenQrScanner}
+            >
+              <Text style={{ color: palette.accentFg, fontWeight: "700", fontSize: 13 }}>扫码配对</Text>
+            </TouchableOpacity>
 
             <TextInput
               style={[

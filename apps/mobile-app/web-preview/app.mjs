@@ -45,7 +45,6 @@ const state = {
   dockTab: "todos",
   theme: localStorage.getItem(STORAGE_THEME) || "light",
   hosts: safeLoadHosts(),
-  demoMode: false,
   ws: null,
   transportKind: null,
   activeHost: null,
@@ -164,7 +163,7 @@ function setTab(tabName) {
   }
   updateComposerVisibility();
 
-  if (!state.demoMode && state.activeHost) {
+  if (state.activeHost) {
     if (tabName === "diff" && state.activeProject) refreshDiff().catch(() => {});
     if (tabName === "inbox") refreshPending().catch(() => {});
     if (tabName === "tasks") refreshTasks().catch(() => {});
@@ -243,18 +242,13 @@ function updateHeader() {
 
   dot.className = "status-dot";
   if (state.isRunning) dot.classList.add("running");
-  else if (state.demoMode || (state.ws && state.ws.readyState === WebSocket.OPEN && state.activeHost)) dot.classList.add("online");
+  else if (state.ws && state.ws.readyState === WebSocket.OPEN && state.activeHost) dot.classList.add("online");
   else if (state.pendingItems.length > 0) dot.classList.add("warn");
 
   if (state.activeSession) {
     title.textContent = state.activeSession.title || "未命名会话";
     const hostLabel = state.hostInfo?.hostName || state.activeHost?.hostName || "主机";
-    const connLabel =
-      state.demoMode
-        ? "演示"
-        : state.transportKind === "relay"
-        ? "盲中继 E2EE"
-        : "直连 E2EE";
+    const connLabel = state.transportKind === "relay" ? "盲中继 E2EE" : "直连 E2EE";
     sub.textContent = `${hostLabel} · ${state.activeProject?.name || "工作区"} · ${connLabel}`;
   } else if (state.hostInfo) {
     title.textContent = state.hostInfo.hostName;
@@ -266,7 +260,6 @@ function updateHeader() {
 
   abortBtn.classList.toggle("hidden", !state.isRunning);
   document.querySelector(".composer-card")?.classList.toggle("is-running", Boolean(state.isRunning));
-  document.getElementById("demo-banner").classList.toggle("hidden", !state.demoMode);
   updateComposerVisibility();
   updateComposerControls();
 }
@@ -546,18 +539,6 @@ async function configureActiveSession(patch) {
     ...patch,
   };
 
-  if (state.demoMode) {
-    state.activeSession = {
-      ...sess,
-      ...patch,
-      model: patch.modelId || sess.model,
-    };
-    state.sessions = state.sessions.map((s) => (s.id === sess.id ? state.activeSession : s));
-    updateHeader();
-    renderProvidersSettings();
-    showToast("已更新演示会话配置");
-    return true;
-  }
 
   try {
     const res = await rpcCall("session.configure", payload);
@@ -979,12 +960,7 @@ function renderChatTimeline() {
       setSettingsSubTab("hosts");
     };
 
-    const tryDemo = document.createElement("button");
-    tryDemo.className = "btn";
-    tryDemo.textContent = "体验演示";
-    tryDemo.onclick = () => enterDemoMode();
-
-    actions.append(goHosts, tryDemo);
+    actions.append(goHosts);
     empty.append(mark, t, d, actions);
     container.appendChild(empty);
     return;
@@ -1216,7 +1192,6 @@ function renderHosts() {
 
   for (const h of state.hosts) {
     const isConnected =
-      !state.demoMode &&
       state.activeHost?.hostId === h.hostId &&
       state.ws &&
       state.ws.readyState === WebSocket.OPEN;
@@ -1442,7 +1417,7 @@ function openSwitcherSheet() {
   if (projects.length === 0) {
     const empty = document.createElement("div");
     empty.className = "card-sub";
-    empty.textContent = "尚未连接主机。请先前往「设置 → 主机与配对」连接电脑或启动交互演示。";
+    empty.textContent = "尚未连接主机。请先前往「设置 → 主机与配对」连接电脑。";
     sessWrap.appendChild(empty);
   } else {
     for (const p of projects) {
@@ -1452,11 +1427,9 @@ function openSwitcherSheet() {
       pill.textContent = p.name;
       pill.onclick = async () => {
         state.activeProject = p;
-        if (!state.demoMode) {
-          const res = await rpcCall("session.list", { projectPath: p.path });
-          state.sessions = res.sessions || [];
-          await refreshDiff().catch(() => {});
-        }
+        const res = await rpcCall("session.list", { projectPath: p.path });
+        state.sessions = res.sessions || [];
+        await refreshDiff().catch(() => {});
         openSwitcherSheet();
       };
       projWrap.appendChild(pill);
@@ -1665,7 +1638,7 @@ function renderModelPickerBody(query = "") {
 
 async function openModelSheet() {
   if (!state.activeSession) return;
-  if (!state.demoMode && state.activeHost && state.providers.length === 0) {
+  if (state.activeHost && state.providers.length === 0) {
     await refreshProvidersAndSettings().catch(() => {});
   }
   const input = document.getElementById("model-search-input");
@@ -1717,7 +1690,7 @@ function closeApprovalSheet() {
    Host Hydration & Data Refresh
    ========================================================================== */
 async function refreshProvidersAndSettings(forceRefreshCatalog = false) {
-  if (state.demoMode || !state.activeHost) return;
+  if (!state.activeHost) return;
   const [provRes, setRes] = await Promise.all([
     rpcCall(forceRefreshCatalog ? "providers.refreshCatalog" : "providers.list").catch(() => ({ providers: [] })),
     rpcCall("settings.get").catch(() => null),
@@ -1732,7 +1705,7 @@ async function refreshProvidersAndSettings(forceRefreshCatalog = false) {
 }
 
 async function refreshTasks() {
-  if (state.demoMode || !state.activeHost) return;
+  if (!state.activeHost) return;
   const res = await rpcCall("tasks.list", {
     sessionId: state.activeSession?.id || undefined,
   }).catch(() => null);
@@ -1746,7 +1719,6 @@ async function refreshTasks() {
 }
 
 async function hydrateHost() {
-  state.demoMode = false;
   state.hostInfo = await rpcCall("host.info");
   state.activeProject =
     state.hostInfo.projects.find((p) => p.active) || state.hostInfo.projects[0] || null;
@@ -1775,14 +1747,6 @@ async function hydrateHost() {
 }
 
 async function selectSession(s) {
-  if (state.demoMode) {
-    state.activeSession = s;
-    renderChatTimeline();
-    renderTasksTab();
-    updateHeader();
-    updateBadges();
-    return;
-  }
   const detail = await rpcCall("session.get", { sessionId: s.id });
   state.activeSession = detail.session;
   state.messages = detail.messages || [];
@@ -1798,7 +1762,6 @@ async function selectSession(s) {
 }
 
 async function refreshPending() {
-  if (state.demoMode) return;
   const res = await rpcCall("pending.list").catch(() => ({ items: [] }));
   state.pendingItems = res.items || [];
   renderInbox();
@@ -1806,7 +1769,7 @@ async function refreshPending() {
 }
 
 async function refreshDiff() {
-  if (state.demoMode || !state.activeProject) return;
+  if (!state.activeProject) return;
   const res = await rpcCall("diff.summary", { projectPath: state.activeProject.path }).catch(() => ({
     branch: "",
     files: [],
@@ -1823,11 +1786,6 @@ async function refreshDiff() {
 
 async function selectDiffFile(filePath) {
   state.selectedDiffPath = filePath;
-  if (state.demoMode) {
-    state.activePatch = DEMO_PATCHES[filePath] || null;
-    renderDiff();
-    return;
-  }
   state.activePatch = await rpcCall("diff.file", {
     projectPath: state.activeProject.path,
     filePath,
@@ -1965,208 +1923,6 @@ async function startPairing() {
   }
 }
 
-/* ==========================================================================
-   Offline Demo Mode (Codex Showcase with Modes, Permissions, Providers & Tasks)
-   ========================================================================== */
-const DEMO_PATCHES = {
-  "apps/pi-plugin/src/host-adapter.mjs": {
-    path: "apps/pi-plugin/src/host-adapter.mjs",
-    status: "M",
-    binary: false,
-    hunks: [
-      {
-        header: "@@ -560,6 +560,12 @@ export class PiHostAdapter",
-        lines: [
-          { type: "context", oldLine: 560, newLine: 560, text: "  async configureSession({ sessionId, mode, permissionMode, providerId, modelId }) {" },
-          { type: "add", oldLine: null, newLine: 561, text: "    const res = await this._desktopInvoke(\"session/configure\", [sessionId, config], {" },
-          { type: "add", oldLine: null, newLine: 562, text: "      confirm: true, preferMcp: true," },
-          { type: "add", oldLine: null, newLine: 563, text: "    });" },
-          { type: "context", oldLine: 564, newLine: 564, text: "    return { applied: true, session: res?.session };" },
-        ],
-      },
-    ],
-  },
-};
-
-function enterDemoMode() {
-  state.demoMode = true;
-  state.transportKind = "demo";
-  state.hostInfo = {
-    hostId: "host_codex_workstation",
-    hostName: "Workstation-Win11",
-    capabilityMode: "mcp-full",
-    projects: [
-      { path: "D:/work/pi app", name: "pi-remote-app", active: true },
-      { path: "D:/work/edge-relay", name: "edge-relay", active: false },
-    ],
-  };
-  state.hostSettings = {
-    defaultMode: "agent",
-    defaultPermissionMode: "accept-edits",
-    defaultProviderId: "anthropic",
-    defaultModelId: "claude-sonnet-4",
-    defaultThinkingLevel: "high",
-  };
-  state.providers = [
-    {
-      id: "anthropic",
-      name: "Anthropic",
-      apiStyle: "messages",
-      baseUrl: "https://api.anthropic.com",
-      enabled: true,
-      hasApiKey: true,
-      defaultModelId: "claude-sonnet-4",
-      models: [
-        { id: "claude-sonnet-4", name: "Claude Sonnet 4", contextWindow: 200000, reasoning: true, vision: true },
-        { id: "claude-opus-4", name: "Claude Opus 4", contextWindow: 200000, reasoning: true, vision: true },
-      ],
-    },
-    {
-      id: "openai",
-      name: "OpenAI Codex",
-      apiStyle: "responses",
-      baseUrl: "https://api.openai.com/v1",
-      enabled: true,
-      hasApiKey: true,
-      defaultModelId: "gpt-5.4",
-      models: [
-        { id: "gpt-5.4", name: "GPT-5.4", contextWindow: 272000, reasoning: true, vision: true },
-        { id: "gpt-5.4-mini", name: "GPT-5.4 Mini", contextWindow: 272000, reasoning: true, vision: true },
-      ],
-    },
-    {
-      id: "custom-gateway",
-      name: "Custom Proxy",
-      apiStyle: "chat_completions",
-      baseUrl: "https://gateway.internal/v1",
-      enabled: true,
-      hasApiKey: true,
-      defaultModelId: "deepseek-r1",
-      models: [
-        { id: "deepseek-r1", name: "DeepSeek R1", contextWindow: 128000, reasoning: true, vision: false },
-      ],
-    },
-  ];
-  state.expandedProviders = new Set(["anthropic", "openai"]);
-
-  state.activeProject = state.hostInfo.projects[0];
-  state.sessions = [
-    {
-      id: "demo_s1",
-      title: "重构远程控端模式与任务中心",
-      projectPath: "D:/work/pi app",
-      status: "idle",
-      mode: "agent",
-      permissionMode: "accept-edits",
-      providerId: "openai",
-      modelId: "gpt-5.4",
-      model: "gpt-5.4",
-      thinkingLevel: "high",
-    },
-    {
-      id: "demo_s2",
-      title: "规划 Go 盲中继灰度方案",
-      projectPath: "D:/work/pi app",
-      status: "idle",
-      mode: "plan",
-      permissionMode: "ask",
-      providerId: "anthropic",
-      modelId: "claude-sonnet-4",
-      model: "claude-sonnet-4",
-      thinkingLevel: "medium",
-    },
-  ];
-  state.activeSession = state.sessions[0];
-  state.messages = [
-    { id: "dm_1", role: "user", content: "接入智能体/目标/规划三模式和权限切换，同时把真实待办和后台任务也同步出来。" },
-    { id: "dm_p1", role: "assistant", content: "正在核对 PI-Desktop 宿主 `session/configure` 与 `providers/list` 规范。", thinking: "确认标准模式下保留宿主桌面确认弹窗，MCP 模式下无弹窗静默生效。", isProcessStep: true },
-    { id: "dm_t1", role: "tool", toolName: "Edit", toolStatus: "success", toolArgsPreview: "{\"path\":\"apps/pi-plugin/src/host-adapter.mjs\"}", isProcessStep: true },
-    { id: "dm_t2", role: "tool", toolName: "Bash", toolStatus: "success", toolArgsPreview: "{\"command\":\"npm test\"}", isProcessStep: true },
-    {
-      id: "dm_2",
-      role: "assistant",
-      thinking: "所有单元测试与插件体检均通过，整理简洁结论。",
-      content: "已完成 **Codex 极简单色重设计** 与全部控端能力接入：\n\n- **三种会话模式**：下方可直接切换 `智能体` / `目标` / `规划`\n- **三种权限级别**：支持 `每次询问` / `允许编辑` / `全自动`\n- **模型与供应商**：输入框一键按供应商选模型与推理等级，设置页可查看全部供应商与刷新目录\n- **真实待办与后台任务**：顶部任务坞 + 独立「任务」页签实时同步 `TodoWrite`、`Bash` 后台进程、子代理与定时任务\n\n```js\nawait rpcCall(\"session.configure\", {\n  sessionId,\n  mode: \"plan\",\n  permissionMode: \"accept-edits\",\n  providerId: \"openai\",\n  modelId: \"gpt-5.4\",\n});\n```",
-    },
-  ];
-  state.todos = [
-    { content: "扩展 protocol 与插件 RPC 支持模式/权限/模型与供应商目录", status: "completed", priority: "high" },
-    { content: "同步真实 TodoWrite 与后台进程状态至任务中心", status: "completed", priority: "high" },
-    { content: "按 Codex 单色美学重构 Web 伴侣与插件控制台", status: "in_progress", priority: "high" },
-    { content: "完成 0.1.5 打包体检与浅/深色浏览器验收", status: "pending", priority: "medium" },
-  ];
-  state.backgroundTasks = [
-    {
-      id: "0c16ee74-relay",
-      kind: "bash",
-      title: "node apps/relay/node/src/server.mjs",
-      command: "node apps/relay/node/src/server.mjs --host 0.0.0.0 --port 8787",
-      state: "running",
-      exitCode: null,
-      outputPreview: "[pi-relay] listening on ws://0.0.0.0:8787/ws (zero-knowledge blind mode)",
-      updatedAt: new Date().toISOString(),
-    },
-    {
-      id: "2b298bed-web",
-      kind: "bash",
-      title: "node apps/mobile-app/web-preview/serve.mjs",
-      command: "node apps/mobile-app/web-preview/serve.mjs --port 47930",
-      state: "running",
-      exitCode: null,
-      outputPreview: "[web-preview] serving Codex companion at http://127.0.0.1:47930/",
-      updatedAt: new Date().toISOString(),
-    },
-    {
-      id: "sub_audit_01",
-      kind: "subagent",
-      title: "端到端密文边界回归审计",
-      agent: "code-reviewer",
-      state: "completed",
-      exitCode: 0,
-      outputPreview: "Verified zero plaintext leakage on relay frames; 28/28 tests green.",
-      updatedAt: new Date().toISOString(),
-    },
-  ];
-  state.scheduledTasks = [
-    {
-      id: "sched_nightly_test",
-      title: "每日凌晨全量协议与插件体检",
-      prompt: "运行 npm test 与 PluginCheck，若失败则汇总差异发送通知。",
-      cadence: "每天 02:00",
-      enabled: true,
-      nextRunAt: "明天 02:00",
-      lastStatus: "success",
-    },
-  ];
-  state.pendingItems = [
-    {
-      id: "demo_perm_1",
-      kind: "permission",
-      sessionId: "demo_s1",
-      sessionTitle: "重构远程控端模式与任务中心",
-      risk: "high",
-      title: "Bash · 构建盲中继容器镜像",
-      summary: "Agent 请求在工作区运行 Docker 镜像构建并推送测试标签。",
-      argsPreview: JSON.stringify({ command: "docker build -t pi-relay:v0.2.0 apps/relay/go", cwd: "D:\\work\\pi app" }, null, 2),
-      requiresDesktopConfirm: false,
-    },
-  ];
-  state.diffBranch = "main";
-  state.diffFiles = [{ path: "apps/pi-plugin/src/host-adapter.mjs", status: "M", additions: 3, deletions: 0 }];
-  state.selectedDiffPath = state.diffFiles[0].path;
-  state.activePatch = DEMO_PATCHES[state.selectedDiffPath];
-
-  state.dockOpen = false;
-  renderChatTimeline();
-  renderTasksTab();
-  renderInbox();
-  renderDiff();
-  renderProvidersSettings();
-  updateHeader();
-  updateBadges();
-  setTab("chat");
-  showToast("已进入 Codex 极简交互演示");
-}
 
 /* ==========================================================================
    Wire Events & Boot
@@ -2254,27 +2010,6 @@ document.getElementById("btn-sheet-new-session").onclick = async () => {
   const mode = state.activeSession?.mode || state.hostSettings?.defaultMode || "agent";
   const providerId = state.activeSession?.providerId || state.hostSettings?.defaultProviderId || undefined;
   const modelId = state.activeSession?.modelId || state.hostSettings?.defaultModelId || undefined;
-  if (state.demoMode) {
-    const created = {
-      id: `demo_${Date.now()}`,
-      title: "新建演示会话",
-      projectPath: state.activeProject.path,
-      status: "idle",
-      mode,
-      permissionMode: state.hostSettings.defaultPermissionMode || "ask",
-      providerId,
-      modelId,
-      model: modelId || "gpt-5.4",
-    };
-    state.sessions.unshift(created);
-    state.activeSession = created;
-    state.messages = [];
-    state.todos = [];
-    closeSwitcherSheet();
-    renderChatTimeline();
-    updateHeader();
-    return;
-  }
   if (!state.activeProject) return;
   const created = await rpcCall(
     "session.create",
@@ -2294,14 +2029,6 @@ document.getElementById("approval-backdrop").addEventListener("click", (e) => {
 document.getElementById("btn-apr-deny").onclick = async () => {
   const item = state.reviewItem;
   if (!item) return;
-  if (state.demoMode) {
-    state.pendingItems = state.pendingItems.filter((p) => p.id !== item.id);
-    closeApprovalSheet();
-    renderInbox();
-    updateBadges();
-    showToast("已拒绝该操作");
-    return;
-  }
   const res = await rpcCall("approval.resolve", { approvalId: item.id, sessionId: item.sessionId, decision: "deny", risk: item.risk });
   if (res.resolved) {
     state.pendingItems = state.pendingItems.filter((p) => p.id !== item.id);
@@ -2322,14 +2049,6 @@ document.getElementById("btn-apr-allow").onclick = async () => {
     document.getElementById("apr-feedback").textContent = "高风险二次确认：已核对上方真实参数";
     return;
   }
-  if (state.demoMode) {
-    state.pendingItems = state.pendingItems.filter((p) => p.id !== item.id);
-    closeApprovalSheet();
-    renderInbox();
-    updateBadges();
-    showToast("已单次允许执行");
-    return;
-  }
   const res = await rpcCall("approval.resolve", { approvalId: item.id, sessionId: item.sessionId, decision: "allow", risk: item.risk, scope: "once" });
   if (res.resolved) {
     state.pendingItems = state.pendingItems.filter((p) => p.id !== item.id);
@@ -2344,12 +2063,6 @@ document.getElementById("btn-apr-allow").onclick = async () => {
 
 document.getElementById("btn-abort").onclick = async () => {
   if (!state.activeSession) return;
-  if (state.demoMode) {
-    state.isRunning = false;
-    updateHeader();
-    showToast("已中止演示回合");
-    return;
-  }
   await rpcCall("turn.abort", { sessionId: state.activeSession.id });
   state.isRunning = false;
   updateHeader();
@@ -2370,27 +2083,6 @@ const sendPrompt = async () => {
   state.messages.push({ id: `local_${Date.now()}`, role: "user", content: text });
   renderChatTimeline();
 
-  if (state.demoMode) {
-    state.isRunning = true;
-    updateHeader();
-    const modeLabel = MODE_LABELS[state.activeSession.mode || "agent"];
-    const permLabel = PERM_LABELS[getEffectivePermissionMode(state.activeSession)];
-    const reply = `收到指令：「${text}」\n\n当前会话参数：**${modeLabel}模式** · **${permLabel}** · \`${state.activeSession.modelId || "gpt-5.4"}\`。连接真实 PI-Desktop 主机后即可实时同步流式输出、待办清单与后台进程。`;
-    let idx = 0;
-    const timer = setInterval(() => {
-      idx += 10;
-      updateStreamingBubble(reply.slice(0, idx));
-      if (idx >= reply.length) {
-        clearInterval(timer);
-        clearStreamingBubble();
-        state.messages.push({ id: `demo_a_${Date.now()}`, role: "assistant", content: reply });
-        state.isRunning = false;
-        renderChatTimeline();
-        updateHeader();
-      }
-    }, 35);
-    return;
-  }
 
   state.isRunning = true;
   updateHeader();
@@ -2412,30 +2104,6 @@ composerInput.addEventListener("keydown", (e) => {
 });
 
 document.getElementById("btn-pair-submit").onclick = startPairing;
-document.getElementById("btn-demo-mode").onclick = enterDemoMode;
-document.getElementById("btn-exit-demo").onclick = () => {
-  state.demoMode = false;
-  state.hostInfo = null;
-  state.activeProject = null;
-  state.activeSession = null;
-  state.messages = [];
-  state.todos = [];
-  state.backgroundTasks = [];
-  state.scheduledTasks = [];
-  state.providers = [];
-  state.pendingItems = [];
-  state.diffFiles = [];
-  state.activePatch = null;
-  renderChatTimeline();
-  renderTasksTab();
-  renderInbox();
-  renderDiff();
-  renderProvidersSettings();
-  updateHeader();
-  updateBadges();
-  setTab("settings");
-  setSettingsSubTab("hosts");
-};
 
 document.getElementById("btn-refresh-tasks").onclick = () =>
   refreshTasks().then(() => showToast("已刷新待办与后台任务"));
