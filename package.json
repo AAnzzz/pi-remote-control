@@ -1,0 +1,28 @@
+{
+  "name": "pi-remote-control",
+  "private": true,
+  "version": "0.1.0",
+  "description": "End-to-end encrypted remote control suite for PI-Desktop: Plugin + Companion Mobile App + Zero-Knowledge Blind Relay",
+  "workspaces": [
+    "packages/*",
+    "apps/pi-plugin",
+    "apps/mobile-app",
+    "apps/relay/node"
+  ],
+  "scripts": {
+    "test:protocol": "node --test packages/protocol/test/*.test.mjs",
+    "test:relay": "node --test apps/relay/node/test/*.test.mjs",
+    "test:cf": "node --test apps/relay/cloudflare/test/*.test.mjs",
+    "test:plugin": "node --test apps/pi-plugin/test/*.test.mjs",
+    "test:e2e": "node --test tests/e2e-relay-plugin-client.test.mjs",
+    "build:plugin": "npm --workspace=apps/pi-plugin run build",
+    "relay:dev": "node apps/relay/node/src/server.mjs",
+    "cf:deploy": "npx --yes wrangler deploy --config apps/relay/cloudflare/wrangler.jsonc",
+    "app:web": "npm --workspace=apps/mobile-app run web",
+    "typecheck": "npm --workspace=packages/protocol run typecheck && npm --workspace=apps/pi-plugin run typecheck && npm --workspace=apps/mobile-app run typecheck",
+    "test": "npm run test:protocol && npm run test:relay && npm run test:cf && npm run test:plugin && npm run test:e2e"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}

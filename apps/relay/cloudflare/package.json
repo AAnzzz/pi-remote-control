@@ -1,0 +1,12 @@
+{
+  "name": "@pi-remote/relay-cloudflare",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "dev": "npx wrangler dev",
+    "deploy": "npx wrangler deploy",
+    "dry-run": "npx wrangler deploy --dry-run"
+  }
+}

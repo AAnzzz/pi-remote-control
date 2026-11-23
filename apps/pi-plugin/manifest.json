@@ -1,0 +1,145 @@
+{
+  "schemaVersion": 1,
+  "id": "local.pi-remote-app",
+  "name": "PI Remote Control",
+  "version": "0.1.5",
+  "description": "End-to-end encrypted remote control bridge for PI-Desktop and its companion mobile app: live streaming output, Git unified diff review, pending approval inbox, and instant turn abort over LAN/Tailscale or self-hostable blind relay.",
+  "author": "PI Remote Control Contributors",
+  "license": "MIT",
+  "homepage": "https://github.com/pi-remote-control/pi-remote-control",
+  "main": "main.js",
+  "engines": {
+    "piDesktop": ">=0.20.0"
+  },
+  "categories": [
+    "agents-workflow",
+    "integrations"
+  ],
+  "i18n": {
+    "en": {
+      "name": "PI Remote Control",
+      "description": "Control PI-Desktop coding agents from the companion mobile app with X25519 + AES-256-GCM end-to-end encryption, live streaming output, read-only Git unified diff review, and one-tap turn abort.",
+      "safetyNotes": "Requires explicit local QR pairing with a 120-second single-use invite and 6-digit SAS code confirmation before any mobile device can connect. Paired keys are encrypted at rest inside the plugin's private data directory and never downgraded to plaintext. LAN direct listening uses Node's built-in http/ws inside the plugin utility process (not mediated by OS sandbox). It is enabled by default and can be disabled in settings. Outbound blind relay connections only forward end-to-end encrypted envelopes; no prompts, diffs, or file contents are visible to the relay. Workspace Git diffs enforce strict project-root containment and reject credential paths (.env*, .ssh/, *.pem, .git/**). Standard mode respects PI-Desktop's native desktop confirmation dialogs for dangerous operations; headless remote resolution is only enabled when the user explicitly starts PI-Desktop with PI_DESKTOP_MCP_CONTROL=1."
+    },
+    "zh-CN": {
+      "name": "PI 远程控制台",
+      "description": "通过配套移动端 App 端到端加密（X25519 + AES-256-GCM）远程控制 PI-Desktop：实时流式吐字、只读 Git Unified Diff 审阅、待审批收件箱与一键急停，支持局域网/Tailscale 直连与开源可自托管盲中继。",
+      "safetyNotes": "任何手机端必须先在桌面端主动生成 120 秒单次配对码并人工核对 6 位短码后方可接入，未配对设备零权限。配对密钥加密保存于本插件私有数据目录（plugins/data/local.pi-remote-app/），损坏时拒绝加载，绝不降级明文。局域网直连监听运行在插件 Node 进程内（不受宿主网络网关或 OS 沙箱约束），默认可按需开关；盲中继仅转发端到端密文信封，不可见任何对话与代码明文。工作区 Git Diff 仅执行只读子命令，强制项目根路径包含校验并过滤凭据路径（.env*、.ssh/、*.pem、.git/**）。标准模式下所有高危审批严格遵守宿主桌面弹窗确认，仅在用户主动启用 PI_DESKTOP_MCP_CONTROL=1 时才走回环控制面远程审批。"
+    }
+  },
+  "safetyNotes": "End-to-end encrypted mobile remote bridge requiring explicit local QR + 6-digit SAS pairing. Credentials stay encrypted in plugin private data directory; Git diff enforces root containment and credential deny-list; standard mode never bypasses PI-Desktop native dangerous-op confirmation.",
+  "activationEvents": [
+    "onStartup",
+    "onCommand:local.pi-remote-app.open",
+    "onCommand:local.pi-remote-app.pair"
+  ],
+  "permissions": [
+    "desktop.control",
+    "background.service",
+    "agent.extension",
+    "ui.view",
+    "ui.panel",
+    "models.list"
+  ],
+  "ui": {
+    "panel": "views/index.html",
+    "title": {
+      "en": "PI Remote Control",
+      "zh-CN": "PI 远程控制台"
+    },
+    "width": 760,
+    "height": 840,
+    "resizable": true
+  },
+  "contributes": {
+    "views": [
+      {
+        "id": "remote-console",
+        "title": {
+          "en": "Remote",
+          "zh-CN": "远程控制"
+        },
+        "icon": "link",
+        "entry": "views/index.html",
+        "order": 45
+      }
+    ],
+    "commands": [
+      {
+        "id": "local.pi-remote-app.open",
+        "title": "PI Remote Control: Open Console / 打开远程控制台",
+        "keywords": [
+          "remote",
+          "mobile",
+          "app",
+          "pair",
+          "远程",
+          "手机"
+        ]
+      },
+      {
+        "id": "local.pi-remote-app.pair",
+        "title": "PI Remote Control: Open Remote Console Panel for Pairing / 打开远程控制台面板进行配对",
+        "keywords": [
+          "pair",
+          "qr",
+          "配对",
+          "二维码"
+        ]
+      }
+    ],
+    "services": [
+      {
+        "id": "remote-bridge",
+        "label": "PI Remote Bridge / 远程控制桥"
+      }
+    ],
+    "agentExtensions": [
+      "extensions/stream-bridge.mjs"
+    ],
+    "settings": [
+      {
+        "key": "hostName",
+        "title": "主机显示名称 / Host Display Name",
+        "description": "展示在手机端的主机别名；留空则使用本机计算机名。",
+        "type": "string",
+        "default": ""
+      },
+      {
+        "key": "directEnabled",
+        "title": "启用局域网 / Tailscale 直连监听 / Enable LAN Direct Server",
+        "description": "开启后在本地网络监听直连 WebSocket，同 Wi-Fi 或 Tailscale 下零中继延迟。",
+        "type": "boolean",
+        "default": true
+      },
+      {
+        "key": "directPort",
+        "title": "直连端口 / Direct Listen Port",
+        "description": "局域网 / Tailscale 直连 WebSocket 端口（默认 47921）。",
+        "type": "number",
+        "default": 47921
+      },
+      {
+        "key": "directOnly",
+        "title": "仅直连模式（硬开关）/ Direct-Only Mode",
+        "description": "开启后绝不连接任何盲中继服务器，仅允许局域网或 Tailscale 直连。",
+        "type": "boolean",
+        "default": false
+      },
+      {
+        "key": "relayUrl",
+        "title": "盲中继地址 / Blind Relay WSS URL",
+        "description": "可选：填写自托管或信任的开源盲中继地址（例如 wss://relay.example.com/ws 或本地调试 ws://127.0.0.1:8787/ws）。留空表示不连接中继。",
+        "type": "string",
+        "default": ""
+      },
+      {
+        "key": "allowMcpHeadlessResolve",
+        "title": "允许复用本机 MCP 控制面远程审批 / Use Local MCP Control Plane When Enabled",
+        "description": "仅当用户主动以 PI_DESKTOP_MCP_CONTROL=1 启动 PI-Desktop 时生效，允许手机端直接批准工具权限/Plan/AskTool。",
+        "type": "boolean",
+        "default": true
+      }
+    ]
+  }
+}

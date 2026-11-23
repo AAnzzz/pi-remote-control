@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <title>PI Remote — Codex Style Remote Console</title>
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <script>try{var t=localStorage.getItem("pi_remote_theme_v1");if(t==="dark"||t==="light")document.documentElement.setAttribute("data-theme",t);}catch(e){}</script>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="stage">
+    <div class="device-shell" id="device-shell">
+      <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+      <!-- Codex Minimal Top Header -->
+      <header class="top-header">
+        <div class="header-left">
+          <button class="session-trigger" id="btn-open-switcher" type="button" title="切换工作区与会话">
+            <span class="status-dot" id="header-dot"></span>
+            <span class="session-trigger-text">
+              <span class="session-trigger-title" id="header-title">PI Remote</span>
+              <span class="session-trigger-sub" id="header-sub">未连接 · 前往设置配对主机</span>
+            </span>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="muted-chevron">
+              <path d="m6 9 6 6 6-6"/>
+            </svg>
+          </button>
+        </div>
+
+        <div class="header-actions">
+          <button class="abort-pill hidden" id="btn-abort" type="button">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16" rx="2.5"/></svg>
+            停止
+          </button>
+          <button class="icon-btn" id="btn-width-toggle" type="button" title="切换手机 / 宽屏视图">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="4" width="18" height="16" rx="2.5"/><line x1="9" y1="4" x2="9" y2="20"/>
+            </svg>
+          </button>
+          <button class="icon-btn" id="btn-theme-toggle" type="button" title="切换浅色 / 深色主题">
+            <svg id="icon-theme-sun" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="hidden">
+              <circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32 1.41 1.41M2 12h2m16 0h2M4.93 19.07l1.41-1.41m11.32-11.32 1.41-1.41"/>
+            </svg>
+            <svg id="icon-theme-moon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+            </svg>
+          </button>
+        </div>
+      </header>
+
+      <!-- Main Viewport -->
+      <main class="viewport">
+        <!-- TAB 1: Chat / Session -->
+        <section class="tab-panel chat-panel active" id="panel-chat">
+          <div class="notice-bar hidden" id="demo-banner">
+            <span>演示模式 · 展示 Codex 单色界面、模式权限切换、供应商模型与真实任务坞</span>
+            <button class="btn sm" id="btn-exit-demo" type="button">退出</button>
+          </div>
+
+          <div class="notice-bar warn hidden" id="chat-pending-banner">
+            <span id="chat-pending-text">有待处理审批请求</span>
+            <span class="link-cta">立即审阅 ›</span>
+          </div>
+
+          <!-- Inline Collapsible Task Dock (Session Todos & Background Tasks) -->
+          <div class="task-dock hidden" id="chat-task-dock">
+            <button class="task-dock-head" id="btn-toggle-dock" type="button">
+              <span class="task-dock-summary" id="dock-summary-text">待办与后台任务</span>
+              <span class="row" style="gap:6px;">
+                <span class="chip sm" id="dock-running-chip"></span>
+                <svg id="dock-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="chevron">
+                  <path d="m6 9 6 6 6-6"/>
+                </svg>
+              </span>
+            </button>
+            <div class="task-dock-clip">
+              <div class="task-dock-body">
+                <div class="between" style="margin-bottom:8px;">
+                  <div class="seg-mini">
+                    <button class="seg-mini-btn active" type="button" id="dock-tab-todos">待办</button>
+                    <button class="seg-mini-btn" type="button" id="dock-tab-bg">后台任务</button>
+                  </div>
+                  <button class="text-btn" id="btn-dock-open-tasks" type="button">查看全部 ›</button>
+                </div>
+                <div id="dock-content"></div>
+              </div>
+            </div>
+          </div>
+
+          <div id="chat-timeline" class="timeline"></div>
+        </section>
+
+        <!-- TAB 2: Real Todos & Background Tasks -->
+        <section class="tab-panel" id="panel-tasks">
+          <div class="section-row">
+            <span class="section-label">工作任务中心</span>
+            <button class="btn sm" id="btn-refresh-tasks" type="button">刷新</button>
+          </div>
+
+          <div class="segmented" role="tablist" aria-label="任务分类">
+            <span class="seg-thumb" id="seg-tasks-thumb" aria-hidden="true"></span>
+            <button class="seg-btn active" data-task-sub="todos" type="button">待办 <span class="seg-count" id="count-todos">0</span></button>
+            <button class="seg-btn" data-task-sub="bg" type="button">后台任务 <span class="seg-count" id="count-bg">0</span></button>
+            <button class="seg-btn" data-task-sub="scheduled" type="button">定时任务 <span class="seg-count" id="count-sched">0</span></button>
+          </div>
+
+          <div id="tasks-view-todos" class="stack"></div>
+          <div id="tasks-view-bg" class="stack hidden"></div>
+          <div id="tasks-view-scheduled" class="stack hidden"></div>
+        </section>
+
+        <!-- TAB 3: Git Unified Diff -->
+        <section class="tab-panel" id="panel-diff">
+          <div class="section-row">
+            <span class="section-label" id="diff-branch-label">工作区变更</span>
+            <div class="row">
+              <button class="btn sm" id="btn-diff-wrap" type="button">自动换行</button>
+              <button class="btn sm" id="btn-refresh-diff" type="button">刷新</button>
+            </div>
+          </div>
+          <div id="diff-files-wrap" class="diff-file-list"></div>
+          <div id="diff-patch-wrap" class="stack"></div>
+        </section>
+
+        <!-- TAB 4: Pending Approval Inbox -->
+        <section class="tab-panel" id="panel-inbox">
+          <div class="section-row">
+            <span class="section-label">跨会话待审批与检查点</span>
+            <button class="btn sm" id="btn-refresh-inbox" type="button">刷新</button>
+          </div>
+          <div id="inbox-list" class="stack"></div>
+        </section>
+
+        <!-- TAB 5: Settings (Providers & Models + Hosts & Pairing + Appearance) -->
+        <section class="tab-panel" id="panel-settings">
+          <div class="segmented" role="tablist" aria-label="设置分区">
+            <span class="seg-thumb" id="seg-settings-thumb" aria-hidden="true"></span>
+            <button class="seg-btn active" data-settings-sub="providers" type="button">供应商与模型</button>
+            <button class="seg-btn" data-settings-sub="hosts" type="button">主机与配对</button>
+            <button class="seg-btn" data-settings-sub="general" type="button">外观与偏好</button>
+          </div>
+
+          <!-- Sub-panel A: Providers & Models -->
+          <div id="settings-view-providers" class="stack">
+            <div class="card">
+              <div class="between">
+                <div>
+                  <div class="card-title">桌面端默认会话配置</div>
+                  <div class="card-sub">来自 PI-Desktop 全局设置，新建会话时自动沿用</div>
+                </div>
+                <button class="btn sm" id="btn-refresh-providers" type="button">刷新目录</button>
+              </div>
+              <div class="kv-grid" id="host-defaults-kv" style="margin-top:12px;"></div>
+            </div>
+
+            <div class="section-row">
+              <span class="section-label">模型供应商</span>
+              <span class="chip" id="providers-count-chip">0 个</span>
+            </div>
+            <div id="providers-list" class="stack"></div>
+          </div>
+
+          <!-- Sub-panel B: Hosts & Pairing -->
+          <div id="settings-view-hosts" class="stack hidden">
+            <div class="sas-hero hidden" id="sas-hero">
+              <div class="sas-label">请核对 PI-Desktop 屏幕上的 6 位安全短码</div>
+              <div class="sas-digits" id="sas-digits">------</div>
+              <div class="card-sub" id="sas-sub">正在等待桌面端点击「同意配对」...</div>
+            </div>
+
+            <div class="card stack">
+              <div class="between">
+                <div>
+                  <div class="card-title">配对 PI-Desktop 主机</div>
+                  <div class="card-sub">120 秒单次配对凭证 · X25519 + AES-256-GCM 端到端加密</div>
+                </div>
+                <span class="chip">E2EE</span>
+              </div>
+              <textarea class="mono-textarea" id="invite-input" placeholder='粘贴 PI-Desktop 插件面板生成的配对 JSON...'></textarea>
+              <div class="between">
+                <div class="row">
+                  <button class="btn primary" id="btn-pair-submit" type="button">发起安全配对</button>
+                  <button class="btn" id="btn-demo-mode" type="button">交互演示</button>
+                </div>
+                <span id="pair-error" class="err-text"></span>
+              </div>
+            </div>
+
+            <div class="section-row">
+              <span class="section-label">已配对桌面主机</span>
+              <span class="chip" id="hosts-count-chip">0 台</span>
+            </div>
+            <div id="hosts-list" class="stack"></div>
+          </div>
+
+          <!-- Sub-panel C: General & Appearance -->
+          <div id="settings-view-general" class="stack hidden">
+            <div class="card stack">
+              <div class="card-title">外观风格</div>
+              <div class="between">
+                <div>
+                  <div class="row-title">界面主题</div>
+                  <div class="card-sub">仿 Codex 极简单色配色，提供纯白与炭黑双模式</div>
+                </div>
+                <div class="seg-mini">
+                  <button class="seg-mini-btn" id="btn-set-light" type="button">浅色</button>
+                  <button class="seg-mini-btn" id="btn-set-dark" type="button">深色</button>
+                </div>
+              </div>
+              <div class="divider"></div>
+              <div class="between">
+                <div>
+                  <div class="row-title">布局宽度</div>
+                  <div class="card-sub">在桌面浏览器预览时切换手机竖屏或宽屏工作台</div>
+                </div>
+                <button class="btn sm" id="btn-settings-width" type="button">切换窄屏 / 宽屏</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Codex-style Composer Dock (Chat Tab Only) -->
+        <div class="composer-wrap hidden" id="floating-composer">
+          <div class="composer-card">
+            <div class="composer-input-row">
+              <textarea class="composer-input" id="composer-input" rows="1" placeholder="给 PI-Desktop 下发任务或追问..."></textarea>
+              <button class="send-btn" id="btn-send" type="button" title="发送">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 19V5"/><path d="m5 12 7-7 7 7"/>
+                </svg>
+              </button>
+            </div>
+
+            <!-- Controls Row: Mode / Permission / Model -->
+            <div class="composer-controls">
+              <button class="ctrl-chip" id="btn-pick-mode" type="button" title="切换工作模式">
+                <span class="ctrl-dot"></span>
+                <span id="ctrl-mode-label">智能体</span>
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="m6 9 6 6 6-6"/></svg>
+              </button>
+
+              <button class="ctrl-chip" id="btn-pick-perm" type="button" title="切换权限模式">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                </svg>
+                <span id="ctrl-perm-label">每次询问</span>
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="m6 9 6 6 6-6"/></svg>
+              </button>
+
+              <button class="ctrl-chip model-chip" id="btn-pick-model" type="button" title="选择模型与推理等级">
+                <span class="model-chip-name" id="ctrl-model-label">默认模型</span>
+                <span class="model-chip-think hidden" id="ctrl-think-label"></span>
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="m6 9 6 6 6-6"/></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Bottom 5-Tab Navigation Bar -->
+        <nav class="tab-bar" aria-label="主导航">
+          <span class="tab-indicator" id="tab-indicator" aria-hidden="true"></span>
+          <button class="tab-btn active" data-tab="chat" type="button">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+            </svg>
+            <span>会话</span>
+          </button>
+          <button class="tab-btn" data-tab="tasks" type="button">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+            </svg>
+            <span>任务</span>
+            <span class="tab-badge neutral hidden" id="badge-tasks">0</span>
+          </button>
+          <button class="tab-btn" data-tab="diff" type="button">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M6 21V9a9 9 0 0 0 9 9"/>
+            </svg>
+            <span>变更</span>
+            <span class="tab-badge neutral hidden" id="badge-diff">0</span>
+          </button>
+          <button class="tab-btn" data-tab="inbox" type="button">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+            </svg>
+            <span>审批</span>
+            <span class="tab-badge danger hidden" id="badge-inbox">0</span>
+          </button>
+          <button class="tab-btn" data-tab="settings" type="button">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="3"/>
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.01a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+            </svg>
+            <span>设置</span>
+          </button>
+        </nav>
+
+        <!-- Bottom Sheet 1: Project & Session Switcher -->
+        <div class="sheet-backdrop" id="switcher-backdrop">
+          <div class="sheet" role="dialog" aria-modal="true">
+            <div class="sheet-grabber"></div>
+            <div class="sheet-head">
+              <span class="sheet-title">工作区与会话</span>
+              <div class="row">
+                <button class="btn primary sm" id="btn-sheet-new-session" type="button">+ 新建会话</button>
+                <button class="icon-btn sm" id="btn-close-switcher" type="button">✕</button>
+              </div>
+            </div>
+            <div class="sheet-body">
+              <div class="proj-scroller" id="sheet-projects"></div>
+              <div id="sheet-sessions" class="stack"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Bottom Sheet 2: Mode / Permission Picker -->
+        <div class="sheet-backdrop" id="picker-backdrop">
+          <div class="sheet" role="dialog" aria-modal="true">
+            <div class="sheet-grabber"></div>
+            <div class="sheet-head">
+              <div>
+                <div class="sheet-title" id="picker-title">选择模式</div>
+                <div class="card-sub" id="picker-sub"></div>
+              </div>
+              <button class="icon-btn sm" id="btn-close-picker" type="button">✕</button>
+            </div>
+            <div class="sheet-body">
+              <div id="picker-options" class="stack"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Bottom Sheet 3: Model & Thinking Level Picker (Grouped by Provider) -->
+        <div class="sheet-backdrop" id="model-backdrop">
+          <div class="sheet tall" role="dialog" aria-modal="true">
+            <div class="sheet-grabber"></div>
+            <div class="sheet-head">
+              <div>
+                <div class="sheet-title">选择模型与推理等级</div>
+                <div class="card-sub">按 PI-Desktop 已配置的供应商分组</div>
+              </div>
+              <div class="row">
+                <button class="btn sm" id="btn-model-manage" type="button">管理供应商</button>
+                <button class="icon-btn sm" id="btn-close-model" type="button">✕</button>
+              </div>
+            </div>
+            <div class="sheet-body">
+              <input class="search-input" id="model-search-input" type="search" placeholder="搜索模型名称或供应商..." />
+              <div class="think-row">
+                <span class="section-label">推理等级</span>
+                <div class="think-pills" id="think-pills"></div>
+              </div>
+              <div id="model-groups" class="stack"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Bottom Sheet 4: High-Risk Approval Review -->
+        <div class="sheet-backdrop" id="approval-backdrop">
+          <div class="sheet" role="dialog" aria-modal="true">
+            <div class="sheet-grabber"></div>
+            <div class="sheet-head">
+              <div>
+                <div class="card-sub" style="font-weight:700;color:var(--warn);" id="apr-meta">安全审批</div>
+                <div class="sheet-title" id="apr-title">工具权限请求</div>
+              </div>
+              <button class="icon-btn sm" id="btn-close-approval" type="button">✕</button>
+            </div>
+            <div class="sheet-body">
+              <div style="font-size:13.5px;line-height:1.55;" id="apr-summary"></div>
+              <div id="apr-args-wrap" class="hidden">
+                <div class="section-label" style="margin-bottom:6px;">宿主结构化参数</div>
+                <pre class="md-code-pre" id="apr-args" style="border-radius:10px;border:1px solid var(--border);background:var(--surface-2);"></pre>
+              </div>
+              <div class="notice-bar warn hidden" id="apr-desktop-warn">
+                <span>标准模式：请回到 PI-Desktop 窗口确认，或以 <code>PI_DESKTOP_MCP_CONTROL=1</code> 启动宿主。</span>
+              </div>
+              <div id="apr-feedback" style="font-size:12.5px;color:var(--text-secondary);font-weight:600;"></div>
+              <div class="row" style="margin-top:4px;">
+                <button class="btn danger" id="btn-apr-deny" style="flex:1;" type="button">拒绝</button>
+                <button class="btn primary" id="btn-apr-allow" style="flex:1.4;" type="button">核对并允许</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <script type="module" src="/app.mjs"></script>
+</body>
+</html>

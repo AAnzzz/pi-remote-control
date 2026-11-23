@@ -1,0 +1,33 @@
+{
+  "expo": {
+    "name": "PI Remote",
+    "slug": "pi-remote-app",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.piremote.companion",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Scan PI-Desktop pairing QR codes.",
+        "NSFaceIDUsageDescription": "Confirm high-risk tool approvals."
+      }
+    },
+    "android": {
+      "package": "com.piremote.companion",
+      "permissions": [
+        "CAMERA",
+        "USE_BIOMETRIC",
+        "INTERNET"
+      ],
+      "adaptiveIcon": { "backgroundColor": "#0D0D0D" }
+    },
+    "plugins": [
+      ["expo-camera", { "cameraPermission": "Scan PI-Desktop pairing QR codes." }],
+      "expo-secure-store",
+      ["expo-local-authentication", { "faceIDPermission": "Confirm high-risk tool approvals." }],
+      ["expo-build-properties", { "android": { "usesCleartextTraffic": true } }]
+    ]
+  }
+}

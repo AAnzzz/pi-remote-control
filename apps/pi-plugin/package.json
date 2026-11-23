@@ -1,0 +1,11 @@
+{
+  "name": "@pi-remote/pi-plugin",
+  "version": "0.1.5",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/sync-protocol.mjs",
+    "test": "node scripts/sync-protocol.mjs && node --test test/*.test.mjs",
+    "typecheck": "node -e \"console.log('pi-plugin ESM static check ok')\""
+  }
+}

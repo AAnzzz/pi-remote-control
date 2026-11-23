@@ -1,0 +1,10 @@
+{
+  "name": "PI Remote",
+  "short_name": "PI Remote",
+  "description": "端到端加密 PI-Desktop 编程智能体远程控制台",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#eef2f8",
+  "theme_color": "#007aff",
+  "orientation": "portrait"
+}

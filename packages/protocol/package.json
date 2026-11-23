@@ -1,0 +1,30 @@
+{
+  "name": "@pi-remote/protocol",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.mjs",
+  "types": "./src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "default": "./src/index.mjs"
+    },
+    "./crypto": {
+      "types": "./src/index.d.ts",
+      "default": "./src/crypto.mjs"
+    },
+    "./validators": {
+      "types": "./src/index.d.ts",
+      "default": "./src/validators.mjs"
+    },
+    "./cursor": {
+      "types": "./src/index.d.ts",
+      "default": "./src/cursor.mjs"
+    }
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "typecheck": "node -e \"console.log('protocol d.ts check ready')\""
+  }
+}

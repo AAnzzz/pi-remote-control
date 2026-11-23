@@ -1,0 +1,583 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PI Remote Control</title>
+  <style>
+    :root,
+    [data-theme="light"] {
+      --bg: #f6f6f7;
+      --surface: #ffffff;
+      --surface-2: #f2f2f3;
+      --border: rgba(0, 0, 0, 0.09);
+      --border-strong: rgba(0, 0, 0, 0.16);
+      --text: #0d0d0d;
+      --muted: #5d5d5d;
+      --accent: #0d0d0d;
+      --accent-fg: #ffffff;
+      --ok: #10a37f;
+      --ok-soft: rgba(16, 163, 127, 0.11);
+      --warn: #b45309;
+      --warn-soft: rgba(180, 83, 9, 0.10);
+      --danger: #dc2626;
+      --danger-soft: rgba(220, 38, 38, 0.10);
+      --code-bg: #f4f4f5;
+      --code-text: #18181b;
+      --font: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Segoe UI", sans-serif;
+      --mono: "JetBrains Mono", "SF Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      --ease: cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    [data-theme="dark"] {
+      --bg: #0d0d0d;
+      --surface: #141414;
+      --surface-2: #1c1c1c;
+      --border: rgba(255, 255, 255, 0.09);
+      --border-strong: rgba(255, 255, 255, 0.16);
+      --text: #ececec;
+      --muted: #9b9b9b;
+      --accent: #ffffff;
+      --accent-fg: #0d0d0d;
+      --ok: #34d399;
+      --ok-soft: rgba(52, 211, 153, 0.13);
+      --warn: #f59e0b;
+      --warn-soft: rgba(245, 158, 11, 0.13);
+      --danger: #f87171;
+      --danger-soft: rgba(248, 113, 113, 0.14);
+      --code-bg: #181818;
+      --code-text: #e5e5e5;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 18px 16px 28px;
+      min-height: 100vh;
+      font-family: var(--font);
+      color: var(--text);
+      font-size: 13px;
+      line-height: 1.55;
+      background: var(--bg);
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .wrap {
+      max-width: 720px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 13px 15px;
+      border-radius: 14px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+    }
+
+    .brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+    .brand-icon {
+      width: 34px;
+      height: 34px;
+      border-radius: 9px;
+      background: var(--accent);
+      color: var(--accent-fg);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .title { font-size: 15px; font-weight: 650; letter-spacing: -0.015em; margin: 0; }
+    .subtitle { font-size: 11.5px; color: var(--muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 15px 16px;
+    }
+
+    .card-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 11px;
+    }
+
+    .card-title { font-size: 13.5px; font-weight: 650; letter-spacing: -0.01em; }
+    .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 3px 8px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 600;
+      border: 1px solid var(--border);
+      background: var(--surface-2);
+      color: var(--muted);
+    }
+    .pill.ok { background: var(--ok-soft); color: var(--ok); border-color: transparent; }
+    .pill.warn { background: var(--warn-soft); color: var(--warn); border-color: transparent; }
+    .pill.solid { background: var(--accent); color: var(--accent-fg); border-color: transparent; }
+
+    .btn {
+      appearance: none;
+      border: 1px solid var(--border-strong);
+      background: var(--surface);
+      color: var(--text);
+      border-radius: 8px;
+      padding: 7px 13px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .btn:hover { background: var(--surface-2); }
+    .btn.primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: var(--accent-fg);
+    }
+    .btn.primary:hover { opacity: 0.88; }
+    .btn.ok { background: var(--ok-soft); border-color: transparent; color: var(--ok); }
+    .btn.danger { background: var(--danger-soft); border-color: transparent; color: var(--danger); }
+    .icon-btn { width: 32px; height: 32px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
+
+    .sas-card {
+      border-color: rgba(180, 83, 9, 0.35);
+      background: var(--warn-soft);
+    }
+
+    .sas-entry {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+      padding: 12px 14px;
+      border-radius: 10px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+    }
+
+    .sas-code {
+      font-family: var(--mono);
+      font-size: 28px;
+      font-weight: 800;
+      letter-spacing: 8px;
+      color: var(--text);
+      line-height: 1.2;
+      margin: 4px 0;
+    }
+
+    .kv {
+      display: grid;
+      grid-template-columns: 88px 1fr;
+      gap: 7px 12px;
+      font-size: 12px;
+    }
+    .kv .k { color: var(--muted); font-weight: 600; }
+    .kv .v { font-family: var(--mono); color: var(--text); word-break: break-all; }
+
+    .input-field {
+      flex: 1;
+      min-width: 220px;
+      border-radius: 9px;
+      border: 1px solid var(--border-strong);
+      background: var(--code-bg);
+      color: var(--text);
+      padding: 8px 11px;
+      font-family: var(--mono);
+      font-size: 12px;
+      outline: none;
+    }
+    .input-field:focus { border-color: var(--text); }
+
+    textarea.code-out {
+      width: 100%;
+      min-height: 80px;
+      border-radius: 9px;
+      border: 1px solid var(--border-strong);
+      background: var(--code-bg);
+      color: var(--code-text);
+      padding: 9px 11px;
+      font-family: var(--mono);
+      font-size: 11px;
+      resize: vertical;
+      outline: none;
+    }
+
+    .device-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 10px 12px;
+      border-radius: 10px;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+    }
+
+    .muted { color: var(--muted); font-size: 12px; }
+    .divider { height: 1px; background: var(--border); margin: 12px 0; }
+
+    details.audit-fold summary {
+      list-style: none;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-weight: 650;
+      font-size: 13px;
+    }
+    details.audit-fold summary::-webkit-details-marker { display: none; }
+    .audit-line {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--muted);
+      padding: 5px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .hidden { display: none !important; }
+
+    @keyframes cardRise {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes sasPulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(180, 83, 9, 0.28); }
+      50% { box-shadow: 0 0 0 5px rgba(180, 83, 9, 0); }
+    }
+    .topbar, .card {
+      animation: cardRise 0.28s var(--ease) both;
+      transition: background-color 0.22s var(--ease), border-color 0.22s var(--ease);
+    }
+    .card:nth-of-type(2) { animation-delay: 35ms; }
+    .card:nth-of-type(3) { animation-delay: 70ms; }
+    .card:nth-of-type(4) { animation-delay: 105ms; }
+    .sas-card:not(.hidden) { animation: cardRise 0.24s var(--ease) both, sasPulse 2.2s ease-in-out infinite; }
+    .btn { transition: transform 0.16s cubic-bezier(0.22, 1.15, 0.36, 1), background 0.16s var(--ease), opacity 0.16s var(--ease); }
+    .btn:active { transform: scale(0.95); }
+    body { transition: background-color 0.26s var(--ease), color 0.26s var(--ease); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-icon" aria-hidden="true">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+          </svg>
+        </div>
+        <div style="min-width:0;">
+          <h1 class="title">PI Remote Control</h1>
+          <div class="subtitle" id="host-sub">正在读取本机远控状态...</div>
+        </div>
+      </div>
+      <div class="row">
+        <span class="pill" id="cap-badge">检测中</span>
+        <button class="btn icon-btn" id="btn-theme" type="button" title="切换浅色 / 深色">◐</button>
+        <button class="btn primary" id="btn-pair" type="button">生成配对码</button>
+      </div>
+    </header>
+
+    <!-- Pending SAS Approvals -->
+    <section class="card sas-card hidden" id="pending-card">
+      <div class="card-head">
+        <span class="card-title">待核验的新设备配对请求</span>
+        <span class="pill warn">请核对 6 位短码一致</span>
+      </div>
+      <div id="pending-list" style="display:flex;flex-direction:column;gap:8px;"></div>
+    </section>
+
+    <!-- One-time 120s Pairing Invite -->
+    <section class="card hidden" id="invite-card">
+      <div class="card-head">
+        <span class="card-title">一次性安全配对凭证</span>
+        <span class="pill ok" id="invite-countdown">剩余 120s</span>
+      </div>
+      <div class="muted" style="margin-bottom:9px;">
+        复制下方配对 JSON 到移动端 / Web 伴侣「设置 → 主机与配对」，核对 6 位短码一致后即建立 X25519 + AES-256-GCM 端到端加密通道。
+      </div>
+      <textarea class="code-out" id="invite-json" readonly></textarea>
+      <div class="row" style="margin-top:9px;">
+        <button class="btn primary" id="btn-copy-invite" type="button">复制配对串</button>
+        <span class="muted" id="copy-hint"></span>
+      </div>
+    </section>
+
+    <!-- Network & Relay -->
+    <section class="card">
+      <div class="card-head">
+        <span class="card-title">连接通道与盲中继</span>
+        <span class="pill" id="relay-badge">仅局域网直连</span>
+      </div>
+      <div class="kv" id="status-kv"></div>
+      <div class="divider"></div>
+      <div class="muted" style="margin-bottom:8px;">
+        自托管开源盲中继（支持 Cloudflare Workers / Go / Node 版 <code>pi-relay.v1</code>，中继仅透传密文信封）
+      </div>
+      <div class="row">
+        <input class="input-field" id="relay-url-input" type="text" placeholder="wss://relay.example.com/ws 或 ws://127.0.0.1:8787/ws（留空仅直连）" />
+        <button class="btn primary" id="btn-save-relay" type="button">保存并重连</button>
+      </div>
+    </section>
+
+    <!-- Paired Mobile Devices -->
+    <section class="card">
+      <div class="card-head">
+        <span class="card-title">已配对移动设备</span>
+        <span class="pill solid" id="device-count">0 台</span>
+      </div>
+      <div id="device-list" style="display:flex;flex-direction:column;gap:8px;"></div>
+    </section>
+
+    <!-- Collapsible Redacted Audit Log -->
+    <section class="card">
+      <details class="audit-fold">
+        <summary>
+          <span>安全审计日志（自动脱敏）</span>
+          <span class="pill" id="audit-count">0 条</span>
+        </summary>
+        <div style="margin-top:10px;">
+          <div class="row" style="margin-bottom:8px;justify-content:flex-end;">
+            <button class="btn" id="btn-refresh" style="padding:5px 10px;font-size:11.5px;" type="button">刷新</button>
+          </div>
+          <div id="audit-list"></div>
+        </div>
+      </details>
+    </section>
+  </div>
+
+  <script>
+    const bridge = window.pluginBridge;
+    const THEME_KEY = "pi_remote_panel_theme";
+    let activeInvite = null;
+    let countdownTimer = null;
+
+    function applyTheme(next) {
+      const t = next === "light" ? "light" : "dark";
+      document.documentElement.setAttribute("data-theme", t);
+      try { localStorage.setItem(THEME_KEY, t); } catch {}
+    }
+
+    try {
+      const saved = localStorage.getItem(THEME_KEY);
+      applyTheme(saved || (window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark"));
+    } catch {
+      applyTheme("dark");
+    }
+
+    document.getElementById("btn-theme").addEventListener("click", () => {
+      const cur = document.documentElement.getAttribute("data-theme");
+      applyTheme(cur === "dark" ? "light" : "dark");
+    });
+
+    function clearEl(el) {
+      while (el.firstChild) el.removeChild(el.firstChild);
+    }
+
+    function addKvRow(container, keyText, valText) {
+      const k = document.createElement("div");
+      k.className = "k";
+      k.textContent = keyText;
+      const v = document.createElement("div");
+      v.className = "v";
+      v.textContent = valText;
+      container.append(k, v);
+    }
+
+    async function invoke(channel, payload) {
+      if (!bridge || typeof bridge.invoke !== "function") {
+        throw new Error("预览模式（在 PI-Desktop 侧边栏面板中打开将自动接入宿主）");
+      }
+      return bridge.invoke(channel, payload || {});
+    }
+
+    function renderSnapshot(snap) {
+      document.getElementById("host-sub").textContent =
+        `${snap.hostName} (${snap.hostId}) · 在线设备 ${(snap.onlineDeviceIds || []).length} 台`;
+
+      const capBadge = document.getElementById("cap-badge");
+      if (snap.capabilityMode === "mcp-full") {
+        capBadge.textContent = "MCP 完整模式";
+        capBadge.className = "pill ok";
+      } else {
+        capBadge.textContent = "标准安全模式";
+        capBadge.className = "pill warn";
+      }
+
+      const relayBadge = document.getElementById("relay-badge");
+      if (snap.directOnly) {
+        relayBadge.textContent = "仅直连模式";
+        relayBadge.className = "pill ok";
+      } else if (snap.relayStatus === "connected") {
+        relayBadge.textContent = "● 盲中继已连接";
+        relayBadge.className = "pill ok";
+      } else if (snap.relayUrl) {
+        relayBadge.textContent = `中继: ${snap.relayStatus}`;
+        relayBadge.className = "pill warn";
+      } else {
+        relayBadge.textContent = "仅局域网直连";
+        relayBadge.className = "pill";
+      }
+
+      const kv = document.getElementById("status-kv");
+      clearEl(kv);
+      addKvRow(kv, "直连服务", snap.directEnabled && snap.directPort ? `运行中 · 端口 ${snap.directPort}` : "未开启");
+      addKvRow(kv, "直连端点", (snap.directUrls || []).join(" , ") || "无");
+      addKvRow(kv, "盲中继", snap.directOnly ? "已禁用（仅直连硬开关生效）" : (snap.relayUrl || "未配置"));
+      addKvRow(kv, "路由标识", snap.routeId || "-");
+
+      const pendingCard = document.getElementById("pending-card");
+      const pendingList = document.getElementById("pending-list");
+      clearEl(pendingList);
+      if (snap.pendingPairings && snap.pendingPairings.length > 0) {
+        pendingCard.classList.remove("hidden");
+        for (const p of snap.pendingPairings) {
+          const box = document.createElement("div");
+          box.className = "sas-entry";
+          const left = document.createElement("div");
+          const dev = document.createElement("div");
+          dev.className = "muted";
+          dev.textContent = `请求设备：${p.deviceName} (${p.deviceId})`;
+          const code = document.createElement("div");
+          code.className = "sas-code";
+          code.textContent = p.sasCode;
+          left.append(dev, code);
+
+          const actions = document.createElement("div");
+          actions.className = "row";
+          const btnOk = document.createElement("button");
+          btnOk.className = "btn ok";
+          btnOk.type = "button";
+          btnOk.textContent = "短码一致，同意配对";
+          btnOk.addEventListener("click", async () => {
+            await invoke("remote.pair.approve", { pendingId: p.pendingId });
+            await refresh();
+          });
+          const btnNo = document.createElement("button");
+          btnNo.className = "btn danger";
+          btnNo.type = "button";
+          btnNo.textContent = "拒绝";
+          btnNo.addEventListener("click", async () => {
+            await invoke("remote.pair.reject", { pendingId: p.pendingId });
+            await refresh();
+          });
+          actions.append(btnOk, btnNo);
+          box.append(left, actions);
+          pendingList.appendChild(box);
+        }
+      } else {
+        pendingCard.classList.add("hidden");
+      }
+
+      const devList = document.getElementById("device-list");
+      clearEl(devList);
+      const onlineSet = new Set(snap.onlineDeviceIds || []);
+      const devs = snap.devices || [];
+      document.getElementById("device-count").textContent = `${devs.length} 台`;
+      if (devs.length === 0) {
+        const empty = document.createElement("div");
+        empty.className = "muted";
+        empty.textContent = "暂无已配对移动设备。点击右上角「生成配对码」开始安全绑定。";
+        devList.appendChild(empty);
+      } else {
+        for (const d of devs) {
+          const item = document.createElement("div");
+          item.className = "device-row";
+          const left = document.createElement("div");
+          const title = document.createElement("div");
+          title.style.fontWeight = "600";
+          title.textContent = `${d.name} ${onlineSet.has(d.deviceId) ? "● 在线" : "○ 离线"}`;
+          const meta = document.createElement("div");
+          meta.className = "muted";
+          meta.textContent = `${d.deviceId} · 最近活跃 ${d.lastSeenAt || "-"}`;
+          left.append(title, meta);
+
+          const revoke = document.createElement("button");
+          revoke.className = "btn danger";
+          revoke.type = "button";
+          revoke.textContent = "吊销";
+          revoke.addEventListener("click", async () => {
+            await invoke("remote.device.revoke", { deviceId: d.deviceId });
+            await refresh();
+          });
+          item.append(left, revoke);
+          devList.appendChild(item);
+        }
+      }
+
+      const audits = snap.recentAudit || [];
+      document.getElementById("audit-count").textContent = `${audits.length} 条`;
+      const auditList = document.getElementById("audit-list");
+      clearEl(auditList);
+      for (const a of audits.slice(0, 20)) {
+        const line = document.createElement("div");
+        line.className = "audit-line";
+        line.textContent = `[${a.ts || ""}] ${a.action || ""} ${a.deviceId ? `dev=${a.deviceId}` : ""}`;
+        auditList.appendChild(line);
+      }
+    }
+
+    async function refresh(syncRelayInput = false) {
+      try {
+        const snap = await invoke("remote.status");
+        renderSnapshot(snap);
+        if (syncRelayInput && snap && typeof snap.relayUrl === "string" && !relayInput.value) {
+          relayInput.value = snap.relayUrl;
+        }
+      } catch (err) {
+        document.getElementById("host-sub").textContent = err.message || String(err);
+      }
+    }
+
+    document.getElementById("btn-pair").addEventListener("click", async () => {
+      const invite = await invoke("remote.pair.create");
+      activeInvite = invite;
+      document.getElementById("invite-card").classList.remove("hidden");
+      document.getElementById("invite-json").value = JSON.stringify(invite);
+      if (countdownTimer) clearInterval(countdownTimer);
+      countdownTimer = setInterval(() => {
+        if (!activeInvite) return;
+        const left = Math.max(0, Math.ceil((activeInvite.expiresAt - Date.now()) / 1000));
+        document.getElementById("invite-countdown").textContent = left > 0 ? `剩余 ${left}s` : "已过期";
+        if (left <= 0) clearInterval(countdownTimer);
+      }, 500);
+      await refresh();
+    });
+
+    document.getElementById("btn-copy-invite").addEventListener("click", async () => {
+      const val = document.getElementById("invite-json").value;
+      try {
+        await navigator.clipboard.writeText(val);
+        document.getElementById("copy-hint").textContent = "已复制到剪贴板 ✓";
+      } catch {
+        document.getElementById("copy-hint").textContent = "请手动全选复制";
+      }
+    });
+
+    const relayInput = document.getElementById("relay-url-input");
+    document.getElementById("btn-save-relay").addEventListener("click", async () => {
+      const url = relayInput.value.trim();
+      const snap = await invoke("remote.settings.update", { relayUrl: url, directOnly: false });
+      renderSnapshot(snap);
+    });
+    document.getElementById("btn-refresh").addEventListener("click", () => refresh());
+
+    refresh(true);
+    setInterval(() => refresh(), 2000);
+  </script>
+</body>
+</html>
