@@ -8,6 +8,7 @@ interface Props {
   palette: CodexPalette;
   themeMode: ThemeMode;
   initialSub?: "providers" | "hosts" | "general";
+  capabilityMode?: "standard" | "mcp-full";
   hostSettings: HostSettingsSummary;
   providers: ProviderSummary[];
   activeSession: SessionSummary | null;
@@ -30,6 +31,7 @@ export function SettingsScreen({
   palette,
   themeMode,
   initialSub = "providers",
+  capabilityMode,
   hostSettings,
   providers,
   activeSession,
@@ -124,8 +126,30 @@ export function SettingsScreen({
                 </View>
               ))}
             </View>
+            {capabilityMode ? (
+              <View
+                style={[
+                  styles.capNotice,
+                  {
+                    backgroundColor: capabilityMode === "mcp-full" ? palette.okSoft : palette.warnSoft,
+                  },
+                ]}
+              >
+                <Text
+                  style={{
+                    color: capabilityMode === "mcp-full" ? palette.ok : palette.warn,
+                    fontSize: 11.5,
+                    fontWeight: "600",
+                    lineHeight: 17,
+                  }}
+                >
+                  {capabilityMode === "mcp-full"
+                    ? "● MCP 免弹窗控制已就绪：点击下方模型将直接切换生效"
+                    : "标准安全模式：切换模型/权限需在电脑弹窗点「允许一次」；以 PI_DESKTOP_MCP_CONTROL=1 启动 PI-Desktop 可解锁手机免弹窗直切"}
+                </Text>
+              </View>
+            ) : null}
           </View>
-
           <View style={styles.between}>
             <Text style={[styles.sectionLabel, { color: palette.textTertiary }]}>模型供应商</Text>
             <View style={[styles.chip, { backgroundColor: palette.surface2, borderColor: palette.border, borderWidth: 1 }]}>
@@ -465,6 +489,7 @@ const styles = StyleSheet.create({
   smBtn: { paddingHorizontal: 11, paddingVertical: 6, borderRadius: 8, borderWidth: 1 },
   kvGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 12 },
   kvCell: { width: "48%", padding: 9, borderRadius: 9, borderWidth: 1 },
+  capNotice: { marginTop: 10, paddingHorizontal: 10, paddingVertical: 8, borderRadius: 9 },
   provCard: { borderRadius: 13, borderWidth: 1, overflow: "hidden" },
   provHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 13, gap: 8 },
   provModels: { borderTopWidth: 1, padding: 9, gap: 6 },

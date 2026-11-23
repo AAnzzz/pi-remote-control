@@ -348,7 +348,37 @@
     }
     details.json-fold summary::-webkit-details-marker { display: none; }
     details.json-fold[open] summary { color: var(--text); margin-bottom: 8px; }
-
+    .cap-banner {
+      margin-top: 12px;
+      padding: 11px 12px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--surface-2);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .cap-banner.ok {
+      background: var(--ok-soft);
+      border-color: transparent;
+    }
+    .cap-banner-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .cap-cmd {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--code-text);
+      background: var(--code-bg);
+      border: 1px solid var(--border-strong);
+      border-radius: 8px;
+      padding: 7px 10px;
+      word-break: break-all;
+    }
     @keyframes cardRise {
       from { opacity: 0; transform: translateY(8px); }
       to { opacity: 1; transform: translateY(0); }
@@ -461,6 +491,14 @@
         <input class="input-field" id="relay-url-input" type="text" placeholder="wss://relay.example.com/ws 或 ws://127.0.0.1:8787/ws（留空仅直连）" />
         <button class="btn primary" id="btn-save-relay" type="button">保存并重连</button>
       </div>
+      <div class="cap-banner" id="cap-banner">
+        <div class="cap-banner-head">
+          <span style="font-weight:650;font-size:12.5px;" id="cap-banner-title">远程控制权限状态</span>
+          <button class="btn hidden" id="btn-copy-mcp-cmd" style="padding:4px 9px;font-size:11px;" type="button">复制免弹窗启动命令</button>
+        </div>
+        <div class="muted" id="cap-banner-desc">正在检测宿主控制模式...</div>
+        <div class="cap-cmd hidden" id="cap-mcp-cmd"></div>
+      </div>
     </section>
 
     <!-- Paired Mobile Devices -->
@@ -539,14 +577,30 @@
         `${snap.hostName} (${snap.hostId}) · 在线设备 ${(snap.onlineDeviceIds || []).length} 台`;
 
       const capBadge = document.getElementById("cap-badge");
+      const capBanner = document.getElementById("cap-banner");
+      const capBannerTitle = document.getElementById("cap-banner-title");
+      const capBannerDesc = document.getElementById("cap-banner-desc");
+      const capMcpCmd = document.getElementById("cap-mcp-cmd");
+      const btnCopyMcp = document.getElementById("btn-copy-mcp-cmd");
+      const mcpLaunchCmd = '$env:PI_DESKTOP_MCP_CONTROL="1"; & "PI-Desktop.exe"';
       if (snap.capabilityMode === "mcp-full") {
-        capBadge.textContent = "MCP 完整模式";
+        capBadge.textContent = "MCP 免弹窗模式";
         capBadge.className = "pill ok";
+        capBanner.className = "cap-banner ok";
+        capBannerTitle.textContent = "已启用本地 MCP 完整控制面";
+        capBannerDesc.textContent = "手机端可直接免弹窗切换模型、推理等级、会话模式、权限级别并远程批准工具/Plan 检查点。";
+        capMcpCmd.classList.add("hidden");
+        btnCopyMcp.classList.add("hidden");
       } else {
         capBadge.textContent = "标准安全模式";
         capBadge.className = "pill warn";
+        capBanner.className = "cap-banner";
+        capBannerTitle.textContent = "标准模式（切换模型 / 权限需桌面确认）";
+        capBannerDesc.textContent = "PI-Desktop 默认将 session/configure 与高危审批设为需本机弹窗确认。若希望手机端脱离电脑免弹窗直接切换模型与审批，可关闭 PI-Desktop 后用下方环境变量重新启动：";
+        capMcpCmd.textContent = mcpLaunchCmd;
+        capMcpCmd.classList.remove("hidden");
+        btnCopyMcp.classList.remove("hidden");
       }
-
       const relayBadge = document.getElementById("relay-badge");
       if (snap.directOnly) {
         relayBadge.textContent = "仅直连模式";
@@ -777,7 +831,17 @@
       renderSnapshot(snap);
     });
     document.getElementById("btn-refresh").addEventListener("click", () => refresh());
-
+    document.getElementById("btn-copy-mcp-cmd").addEventListener("click", async () => {
+      const cmd = document.getElementById("cap-mcp-cmd").textContent;
+      const btn = document.getElementById("btn-copy-mcp-cmd");
+      try {
+        await navigator.clipboard.writeText(cmd);
+        btn.textContent = "已复制 ✓";
+        setTimeout(() => { btn.textContent = "复制免弹窗启动命令"; }, 1600);
+      } catch {
+        btn.textContent = "请手动复制下方命令";
+      }
+    });
     refresh(true);
     setInterval(() => refresh(), 2000);
   </script>

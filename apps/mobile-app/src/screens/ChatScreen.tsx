@@ -1,5 +1,6 @@
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -8,6 +9,8 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
 } from "react-native";
 import type {
   BackgroundTaskItem,
@@ -16,8 +19,8 @@ import type {
   SessionSummary,
   TodoItem,
 } from "@pi-remote/protocol";
+import { MarkdownView } from "../components/MarkdownView";
 import { MODE_LABELS, PERM_LABELS, THINK_LABELS, type CodexPalette } from "../theme";
-
 interface Props {
   palette: CodexPalette;
   hasHosts: boolean;
@@ -32,6 +35,7 @@ interface Props {
   backgroundTasks: BackgroundTaskItem[];
   sessionPending: PendingApprovalItem[];
   isRunning: boolean;
+  configuringLabel?: string | null;
   onGoPair: () => void;
   onSendPrompt: (text: string) => void;
   onOpenModePicker: () => void;
@@ -39,43 +43,12 @@ interface Props {
   onOpenModelPicker: () => void;
   onOpenTasksTab: () => void;
   onInspectPending: (item: PendingApprovalItem) => void;
+  onPressFilePath?: (filePath: string) => void;
 }
 
 type TimelineGroup =
   | { kind: "process"; id: string; steps: ChatMessage[] }
   | { kind: "message"; id: string; msg: ChatMessage };
-
-function renderRichTextSegments(text: string, palette: CodexPalette) {
-  const parts = text.split(/(```[\s\S]*?```)/g);
-  return parts.map((seg, idx) => {
-    if (seg.startsWith("```") && seg.endsWith("```")) {
-      const inner = seg.slice(3, -3);
-      const firstNl = inner.indexOf("\n");
-      const lang = firstNl > 0 ? inner.slice(0, firstNl).trim() || "code" : "code";
-      const code = firstNl > 0 ? inner.slice(firstNl + 1) : inner;
-      return (
-        <View
-          key={idx}
-          style={[styles.codeBlock, { backgroundColor: palette.codeBg, borderColor: palette.border }]}
-        >
-          <View style={[styles.codeHead, { backgroundColor: palette.codeHeader, borderBottomColor: palette.border }]}>
-            <Text style={{ color: palette.textSecondary, fontSize: 11, fontFamily: palette.mono }}>{lang}</Text>
-          </View>
-          <ScrollView horizontal>
-            <Text style={[styles.codePre, { color: palette.codeText, fontFamily: palette.mono }]}>{code}</Text>
-          </ScrollView>
-        </View>
-      );
-    }
-    const clean = seg.trim();
-    if (!clean) return null;
-    return (
-      <Text key={idx} style={[styles.assistantText, { color: palette.text }]}>
-        {clean}
-      </Text>
-    );
-  });
-}
 
 export function ChatScreen({
   palette,
@@ -91,6 +64,7 @@ export function ChatScreen({
   backgroundTasks,
   sessionPending,
   isRunning,
+  configuringLabel,
   onGoPair,
   onSendPrompt,
   onOpenModePicker,
@@ -98,13 +72,52 @@ export function ChatScreen({
   onOpenModelPicker,
   onOpenTasksTab,
   onInspectPending,
+  onPressFilePath,
 }: Props) {
   const [draft, setDraft] = useState("");
   const [dockOpen, setDockOpen] = useState(false);
   const [dockTab, setDockTab] = useState<"todos" | "bg">("todos");
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
+  const [showScrollDown, setShowScrollDown] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
+  const nearBottomRef = useRef(true);
+  const forceScrollBottomRef = useRef(true);
+  const lastSessionIdRef = useRef<string | null>(null);
 
+  useEffect(() => {
+    const sid = session?.id || null;
+    if (sid !== lastSessionIdRef.current) {
+      lastSessionIdRef.current = sid;
+      nearBottomRef.current = true;
+      forceScrollBottomRef.current = true;
+      setShowScrollDown(false);
+    }
+  }, [session?.id]);
+
+  useEffect(() => {
+    if (forceScrollBottomRef.current || nearBottomRef.current) {
+      const timer = setTimeout(() => {
+        scrollRef.current?.scrollToEnd({ animated: false });
+      }, 40);
+      return () => clearTimeout(timer);
+    }
+  }, [messages.length, session?.id]);
+
+  const handleScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const { layoutMeasurement, contentOffset, contentSize } = e.nativeEvent;
+    const dist = contentSize.height - (layoutMeasurement.height + contentOffset.y);
+    const near = dist <= 96;
+    nearBottomRef.current = near;
+    if (!near) forceScrollBottomRef.current = false;
+    setShowScrollDown(!near && contentSize.height > layoutMeasurement.height + 140);
+  };
+
+  const scrollToLatest = (animated = true) => {
+    nearBottomRef.current = true;
+    forceScrollBottomRef.current = false;
+    setShowScrollDown(false);
+    scrollRef.current?.scrollToEnd({ animated });
+  };
   const grouped = useMemo<TimelineGroup[]>(() => {
     const out: TimelineGroup[] = [];
     let procBuf: ChatMessage[] = [];
@@ -134,8 +147,9 @@ export function ChatScreen({
     const text = draft.trim();
     if (!text || !session) return;
     setDraft("");
+    nearBottomRef.current = true;
     onSendPrompt(text);
-    setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 80);
+    setTimeout(() => scrollToLatest(true), 80);
   };
 
   const mode = session?.mode || "agent";
@@ -259,26 +273,51 @@ export function ChatScreen({
         </View>
       ) : null}
 
-      <ScrollView
-        ref={scrollRef}
-        style={styles.timeline}
-        contentContainerStyle={styles.timelineContent}
-        onContentSizeChange={() => {
-          if (isRunning) scrollRef.current?.scrollToEnd({ animated: false });
-        }}
-      >
+      {configuringLabel ? (
+        <View
+          style={[
+            styles.configBanner,
+            { backgroundColor: palette.surface2, borderBottomColor: palette.border },
+          ]}
+        >
+          <ActivityIndicator size="small" color={palette.text} />
+          <Text numberOfLines={2} style={{ color: palette.text, fontSize: 12, fontWeight: "600", flex: 1 }}>
+            {configuringLabel}
+          </Text>
+        </View>
+      ) : null}
 
-        {sessionPending.length > 0 ? (
-          <TouchableOpacity
-            style={[styles.noticeBar, { backgroundColor: palette.warnSoft, borderColor: palette.warn }]}
-            onPress={() => onInspectPending(sessionPending[0])}
-          >
-            <Text style={{ color: palette.warn, fontSize: 12.5, fontWeight: "600", flex: 1 }}>
-              当前会话有 {sessionPending.length} 项待审批 / 提问
-            </Text>
-            <Text style={{ color: palette.warn, fontSize: 12.5, fontWeight: "700" }}>立即审阅 ›</Text>
-          </TouchableOpacity>
-        ) : null}
+      <View style={styles.timelineWrap}>
+        <ScrollView
+          ref={scrollRef}
+          style={styles.timeline}
+          contentContainerStyle={styles.timelineContent}
+          keyboardShouldPersistTaps="handled"
+          scrollEventThrottle={64}
+          onScroll={handleScroll}
+          onContentSizeChange={() => {
+            if (forceScrollBottomRef.current || (nearBottomRef.current && (isRunning || Boolean(streamingText) || Boolean(streamingThinking)))) {
+              scrollRef.current?.scrollToEnd({ animated: false });
+              if (forceScrollBottomRef.current && messages.length > 0) {
+                setTimeout(() => {
+                  scrollRef.current?.scrollToEnd({ animated: false });
+                  forceScrollBottomRef.current = false;
+                }, 60);
+              }
+            }
+          }}
+        >
+          {sessionPending.length > 0 ? (
+            <TouchableOpacity
+              style={[styles.noticeBar, { backgroundColor: palette.warnSoft, borderColor: palette.warn }]}
+              onPress={() => onInspectPending(sessionPending[0])}
+            >
+              <Text style={{ color: palette.warn, fontSize: 12.5, fontWeight: "600", flex: 1 }}>
+                当前会话有 {sessionPending.length} 项待审批 / 提问
+              </Text>
+              <Text style={{ color: palette.warn, fontSize: 12.5, fontWeight: "700" }}>立即审阅 ›</Text>
+            </TouchableOpacity>
+          ) : null}
 
         {!session ? (
           <View style={styles.emptyWrap}>
@@ -366,7 +405,9 @@ export function ChatScreen({
                 return (
                   <View key={g.id} style={styles.userRow}>
                     <View style={[styles.userBubble, { backgroundColor: palette.userBubbleBg }]}>
-                      <Text style={[styles.userText, { color: palette.userBubbleText }]}>{m.content}</Text>
+                      <Text selectable style={[styles.userText, { color: palette.userBubbleText }]}>
+                        {m.content}
+                      </Text>
                     </View>
                   </View>
                 );
@@ -389,13 +430,17 @@ export function ChatScreen({
                         <Text style={{ color: palette.textTertiary, fontSize: 12 }}>{thinkOpen ? "▴" : "▾"}</Text>
                       </TouchableOpacity>
                       {thinkOpen ? (
-                        <Text style={{ color: palette.textTertiary, fontSize: 12, marginTop: 6, lineHeight: 18 }}>
+                        <Text selectable style={{ color: palette.textTertiary, fontSize: 12, marginTop: 6, lineHeight: 18 }}>
                           {m.thinking}
                         </Text>
                       ) : null}
                     </View>
                   ) : null}
-                  {renderRichTextSegments(m.content || "", palette)}
+                  <MarkdownView
+                    content={m.content || ""}
+                    palette={palette}
+                    onPressFilePath={onPressFilePath}
+                  />
                 </View>
               );
             })}
@@ -403,19 +448,38 @@ export function ChatScreen({
             {streamingThinking || streamingText ? (
               <View style={[styles.streamingWrap, { borderLeftColor: palette.text }]}>
                 {streamingThinking ? (
-                  <Text style={{ color: palette.textTertiary, fontSize: 12, marginBottom: 6 }}>
+                  <Text selectable style={{ color: palette.textTertiary, fontSize: 12, marginBottom: 6, lineHeight: 18 }}>
                     {streamingThinking}
                   </Text>
                 ) : null}
-                <Text style={[styles.assistantText, { color: palette.text }]}>
-                  {streamingText || "正在生成回复..."}
-                  {" ▍"}
-                </Text>
+                <MarkdownView
+                  content={streamingText}
+                  palette={palette}
+                  streaming
+                  onPressFilePath={onPressFilePath}
+                />
               </View>
             ) : null}
           </>
         )}
-      </ScrollView>
+        </ScrollView>
+
+        {showScrollDown && session ? (
+          <TouchableOpacity
+            style={[
+              styles.scrollDownFab,
+              {
+                backgroundColor: palette.surface,
+                borderColor: palette.borderStrong,
+              },
+            ]}
+            activeOpacity={0.85}
+            onPress={() => scrollToLatest(true)}
+          >
+            <Text style={{ color: palette.text, fontSize: 12, fontWeight: "700" }}>↓ 最新</Text>
+          </TouchableOpacity>
+        ) : null}
+      </View>
 
       {session ? (
         <View style={[styles.composerOuter, { backgroundColor: palette.bg }]}>
@@ -528,8 +592,27 @@ const styles = StyleSheet.create({
   miniSeg: { flexDirection: "row", borderRadius: 7, padding: 2, gap: 2 },
   miniSegBtn: { paddingHorizontal: 9, paddingVertical: 4, borderRadius: 5 },
   chip: { paddingHorizontal: 7, paddingVertical: 2, borderRadius: 6 },
+  configBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 9,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+  },
+  timelineWrap: { flex: 1, position: "relative" },
   timeline: { flex: 1 },
-  timelineContent: { padding: 14, paddingBottom: 18, gap: 14 },
+  timelineContent: { padding: 14, paddingBottom: 22, gap: 14 },
+  scrollDownFab: {
+    position: "absolute",
+    right: 14,
+    bottom: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 999,
+    borderWidth: 1,
+    elevation: 3,
+  },
   noticeBar: {
     flexDirection: "row",
     alignItems: "center",

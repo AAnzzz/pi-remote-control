@@ -322,12 +322,49 @@ export function extractWorkStateFromRawMessages(rawMessages = [], sessionId = ""
   };
 }
 
+const MCP_VERSION = "2025-03-26";
+
+function postMcp({ url, token, sessionId, protocolVersion }, message, signal) {
+  return fetch(url, {
+    method: "POST",
+    redirect: "error",
+    signal,
+    headers: {
+      "content-type": "application/json",
+      accept: "application/json, text/event-stream",
+      authorization: `Bearer ${token}`,
+      ...(sessionId ? { "Mcp-Session-Id": sessionId } : {}),
+      ...(protocolVersion ? { "MCP-Protocol-Version": protocolVersion } : {}),
+    },
+    body: JSON.stringify({ jsonrpc: "2.0", ...message }),
+  });
+}
+
+async function readMcpReply(res, id) {
+  const text = (await res.text()).trim();
+  if (text.startsWith("{")) return JSON.parse(text);
+  // A stream can carry keepalives and notifications before the actual reply.
+  for (const event of text.split(/\r?\n\r?\n/)) {
+    const data = event.split(/\r?\n/).filter(line => line.startsWith("data:"))
+      .map(line => line.slice(5).trimStart()).join("\n");
+    const reply = safeParseJson(data);
+    if (reply && (reply.id === id || reply.id == null) && ("result" in reply || "error" in reply)) return reply;
+  }
+  throw new Error("Local MCP control returned no JSON-RPC reply");
+}
+
+function requireMcpSuccess(res, reply) {
+  if (!res.ok) throw new Error(`Local MCP control HTTP ${res.status}`);
+  if (reply?.error) throw new Error(reply.error.message || "MCP request failed");
+}
+
 export class PiHostAdapter {
   constructor({ pi, allowMcpHeadless = true, mcpConfigDir = null } = {}) {
     this.pi = pi;
     this.allowMcpHeadless = allowMcpHeadless;
     this.mcpConfigDir = mcpConfigDir || path.join(os.homedir(), ".pi-desktop");
-    this._mcpState = { available: false, url: null, token: null, checkedAt: 0 };
+    this._mcpState = { available: false, url: null, token: null, sessionId: null, protocolVersion: MCP_VERSION, checkedAt: 0 };
+    this._mcpProbe = null;
   }
 
   setAllowMcpHeadless(enabled) {
@@ -335,53 +372,63 @@ export class PiHostAdapter {
     this._mcpState.checkedAt = 0;
   }
 
+  async _initializeMcpSession(url, token, timeoutMs = 1500) {
+    const state = { url, token, sessionId: null, protocolVersion: MCP_VERSION };
+    const res = await postMcp({ url, token }, {
+      id: "init",
+      method: "initialize",
+      params: {
+        protocolVersion: MCP_VERSION,
+        capabilities: {},
+        clientInfo: { name: "local.pi-remote-app", version: "1.0.1" },
+      },
+    }, AbortSignal.timeout(timeoutMs));
+    const reply = await readMcpReply(res, "init");
+    // Legacy stateless servers may only implement tools/list and tools/call.
+    if (reply.jsonrpc === "2.0" && reply.error && ![401, 403].includes(res.status)) return state;
+    requireMcpSuccess(res, reply);
+    state.sessionId = res.headers.get("mcp-session-id");
+    state.protocolVersion = reply.result?.protocolVersion || MCP_VERSION;
+    if (state.sessionId) {
+      try {
+        const ack = await postMcp(state, { method: "notifications/initialized" }, AbortSignal.timeout(timeoutMs));
+        await ack.body?.cancel();
+      } catch {
+        // Best effort. The subsequent tool request verifies the session.
+      }
+    }
+    return state;
+  }
+
   async detectCapabilityMode() {
     if (!this.allowMcpHeadless) return "standard";
-    const now = Date.now();
-    if (now - this._mcpState.checkedAt < 10_000) {
+    if (Date.now() - this._mcpState.checkedAt < 10_000) {
       return this._mcpState.available ? "mcp-full" : "standard";
     }
-    this._mcpState.checkedAt = now;
-    this._mcpState.available = false;
+    // Concurrent callers must wait for the same handshake, not observe a partial probe.
+    if (!this._mcpProbe) this._mcpProbe = this._probeMcp().finally(() => { this._mcpProbe = null; });
+    return this._mcpProbe;
+  }
 
+  async _probeMcp() {
     try {
-      const cfgPath = path.join(this.mcpConfigDir, "mcp-control.json");
+      const cfg = JSON.parse(fs.readFileSync(path.join(this.mcpConfigDir, "mcp-control.json"), "utf8"));
       const tokenPath = path.join(this.mcpConfigDir, "mcp-control.token");
-      if (!fs.existsSync(cfgPath) || !fs.existsSync(tokenPath)) return "standard";
-      const cfg = JSON.parse(fs.readFileSync(cfgPath, "utf8"));
-      const token = fs.readFileSync(tokenPath, "utf8").trim();
+      const token = fs.existsSync(tokenPath) ? fs.readFileSync(tokenPath, "utf8").trim() : cfg.token?.trim();
       const url = cfg.url || (cfg.port ? `http://127.0.0.1:${cfg.port}/mcp` : null);
-      if (!url || !token || !/^http:\/\/127\.0\.0\.1:\d+\/mcp$/.test(url)) return "standard";
-
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 1200);
-      try {
-        const res = await fetch(url, {
-          method: "POST",
-          redirect: "error",
-          signal: ctrl.signal,
-          headers: {
-            "content-type": "application/json",
-            accept: "application/json, text/event-stream",
-            authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            jsonrpc: "2.0",
-            id: "probe",
-            method: "tools/list",
-            params: {},
-          }),
-        });
-        if (res.ok) {
-          this._mcpState = { available: true, url, token, checkedAt: now };
+      if (cfg.active !== false && token && /^http:\/\/127\.0\.0\.1:\d+\/mcp$/.test(url)) {
+        const state = await this._initializeMcpSession(url, token);
+        const res = await postMcp(state, { id: "probe", method: "tools/list", params: {} }, AbortSignal.timeout(1500));
+        requireMcpSuccess(res, await readMcpReply(res, "probe"));
+        if (this.allowMcpHeadless) {
+          this._mcpState = { ...state, available: true, checkedAt: Date.now() };
           return "mcp-full";
         }
-      } finally {
-        clearTimeout(timer);
       }
     } catch {
-      // MCP control plane not enabled or unreachable
+      // MCP control plane not enabled or unreachable.
     }
+    this._mcpState = { available: false, url: null, token: null, sessionId: null, protocolVersion: MCP_VERSION, checkedAt: Date.now() };
     return "standard";
   }
 
@@ -396,40 +443,25 @@ export class PiHostAdapter {
   }
 
   async _invokeMcpDesktopOp(operation, args, confirm) {
-    const res = await fetch(this._mcpState.url, {
-      method: "POST",
-      redirect: "error",
-      headers: {
-        "content-type": "application/json",
-        accept: "application/json, text/event-stream",
-        authorization: `Bearer ${this._mcpState.token}`,
-      },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: `op-${Date.now()}`,
-        method: "tools/call",
-        params: {
-          name: "pi_desktop_invoke",
-          arguments: { operation, args, confirm },
-        },
-      }),
-    });
-    if (!res.ok) {
-      throw new Error(`Local MCP control HTTP ${res.status}`);
+    const message = {
+      id: `op-${Date.now()}`,
+      method: "tools/call",
+      params: { name: "pi_desktop_invoke", arguments: { operation, args, confirm } },
+    };
+    let state = this._mcpState;
+    let res = await postMcp(state, message);
+    if (res.status === 400 || res.status === 404) {
+      await res.body?.cancel();
+      const fresh = await this._initializeMcpSession(state.url, state.token);
+      state = { ...fresh, available: true, checkedAt: Date.now() };
+      this._mcpState = state;
+      res = await postMcp(state, message);
     }
-    const text = await res.text();
-    const jsonLine = text.startsWith("{")
-      ? text
-      : text
-          .split(/\r?\n/)
-          .filter((l) => l.startsWith("data:"))
-          .map((l) => l.slice(5).trim())
-          .pop() || "{}";
-    const parsed = JSON.parse(jsonLine);
-    if (parsed.error) {
-      throw new Error(parsed.error.message || "MCP invocation failed");
-    }
-    const contentText = parsed?.result?.content?.[0]?.text;
+    requireMcpSuccess(res);
+    const parsed = await readMcpReply(res, message.id);
+    requireMcpSuccess(res, parsed);
+    const contentText = parsed.result?.content?.find(part => typeof part?.text === "string")?.text;
+    if (parsed.result?.isError) throw new Error(contentText || "MCP tool invocation failed");
     if (contentText) {
       try {
         const inner = JSON.parse(contentText);

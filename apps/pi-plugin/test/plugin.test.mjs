@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import http from "node:http";
+import { randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { PluginVault } from "../src/vault.mjs";
 import { PiHostAdapter } from "../src/host-adapter.mjs";
@@ -393,6 +395,8 @@ test("main.js binds globalThis.pi with zero-arg onLoad(), registers remote-bridg
     assert.equal(commands.has("local.pi-remote-app.open"), true, "open command must be registered");
     assert.equal(commands.has("local.pi-remote-app.pair"), true, "pair command must be registered");
 
+    assert.equal(typeof events.get("session:modelChanged"), "function");
+    events.get("session:modelChanged")({ sessionId: "s1", modelKey: "p/m" });
     await services.get("remote-bridge").start();
     const snap = await mod.onPanelInvoke("remote.status", {});
     assert.equal(snap.projects.length, 1);
@@ -408,6 +412,7 @@ test("main.js binds globalThis.pi with zero-arg onLoad(), registers remote-bridg
     fs.rmSync(dataDir, { recursive: true, force: true });
     fs.rmSync(projectDir, { recursive: true, force: true });
   }
+  assert.equal(events.has("session:modelChanged"), false);
 });
 
 test("host-adapter & remote-engine parse PI-Desktop blocks/content[] arrays, skip system msgs, and fallback on turnEnded", async () => {
@@ -715,4 +720,144 @@ test("extracts real TodoWrite checklist, background Bash/Subagent tasks, live si
   } finally {
     fs.rmSync(dataDir, { recursive: true, force: true });
   }
+});
+
+// Loopback transport, real headers and status codes; no fetch interception.
+async function startControlPlane(t, { legacy = null, tokenFile = true, active = true } = {}) {
+  const dir = makeTempDir("pi-mcp-control-");
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const sessions = new Map();
+  const requests = [];
+  const version = "2025-06-18"; // Distinct from the offer to exercise negotiation.
+  const server = http.createServer(async (req, res) => {
+    let body = "";
+    for await (const chunk of req) body += chunk;
+    const { id, method, params, jsonrpc } = JSON.parse(body);
+    const sid = req.headers["mcp-session-id"];
+    const entry = { method, params, sid, status: 200 };
+    requests.push(entry);
+    function send(status, value) {
+      entry.status = status;
+      res.writeHead(status, { "content-type": "application/json" });
+      res.end(JSON.stringify(value));
+    }
+    function result(value, sse = false) {
+      const reply = { jsonrpc: "2.0", id, result: value };
+      if (!sse) return send(200, reply);
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      res.end(`: ping\r\n\r\ndata: {"jsonrpc":"2.0","method":"notifications/progress"}\r\n\r\nevent: message\r\ndata: ${JSON.stringify(reply)}\r\n\r\n`);
+    }
+    if (req.url !== "/mcp" || req.method !== "POST" || jsonrpc !== "2.0") return send(400, {});
+    if (req.headers.authorization !== "Bearer loopback-test") return send(401, {});
+    if (method === "initialize") {
+      if (legacy === "method-not-found") return send(200, { jsonrpc, id, error: { code: -32601, message: "Method not found" } });
+      if (!legacy) {
+        const issued = randomUUID();
+        sessions.set(issued, false);
+        res.setHeader("Mcp-Session-Id", issued);
+      }
+      return result({ protocolVersion: version, capabilities: { tools: {} } }, !legacy);
+    }
+    if (!legacy) {
+      if (!sid) return send(400, { error: "Mcp-Session-Id is required" });
+      if (!sessions.has(sid)) return send(404, { error: "unknown MCP session" });
+      if (req.headers["mcp-protocol-version"] !== version) return send(400, { error: "wrong version" });
+      if (method === "notifications/initialized" && id === undefined) {
+        sessions.set(sid, true);
+        return send(202);
+      }
+      if (!sessions.get(sid)) return send(400, { error: "not initialized" });
+    }
+    if (method === "tools/list") return result({ tools: [{ name: "pi_desktop_invoke" }] });
+    if (method !== "tools/call" || params?.name !== "pi_desktop_invoke") return send(400, {});
+    const { operation, args, confirm } = params.arguments;
+    if (operation !== "session/configure" || confirm !== true) return send(400, {});
+    const [sessionId, config] = args;
+    if (config.modelId === "bad-request") return send(400, { error: "invalid args" });
+    if (config.modelId === "unavailable") return result({ isError: true, content: [{ type: "text", text: "model unavailable" }] }, true);
+    const updated = { operation, result: { session: { id: sessionId, ...config } } };
+    return result({ content: [{ type: "text", text: JSON.stringify(updated) }] }, !legacy);
+  });
+  await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  const url = `http://127.0.0.1:${server.address().port}/mcp`;
+  fs.writeFileSync(path.join(dir, "mcp-control.json"), JSON.stringify({ url, active, token: tokenFile ? "superseded" : "loopback-test" }));
+  if (tokenFile) fs.writeFileSync(path.join(dir, "mcp-control.token"), "loopback-test\n");
+  return { adapter: new PiHostAdapter({ mcpConfigDir: dir }), sessions, requests, url };
+}
+
+test("strict MCP: handshake before tools/list, cache session, configure, recover once after expiry", async t => {
+  const { adapter, sessions, requests, url } = await startControlPlane(t);
+  const missing = await fetch(url, { method: "POST", headers: { authorization: "Bearer loopback-test" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }) });
+  assert.equal(missing.status, 400);
+  assert.equal((await missing.json()).error, "Mcp-Session-Id is required");
+  requests.length = 0;
+  assert.deepEqual(await Promise.all([adapter.detectCapabilityMode(), adapter.detectCapabilityMode()]), ["mcp-full", "mcp-full"]);
+  const configure = modelId => adapter.configureSession({ sessionId: "s1", modelId });
+  const first = await configure("before");
+  assert.equal(first.capabilityMode, "mcp-full");
+  assert.equal(first.requiresDesktopConfirm, false);
+  assert.equal(first.session.modelId, "before");
+  assert.deepEqual(requests.map(r => [r.method, r.status]), [["initialize", 200], ["notifications/initialized", 202], ["tools/list", 200], ["tools/call", 200]]);
+  assert.deepEqual(requests[0].params, { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "local.pi-remote-app", version: "1.0.1" } });
+  const old = requests[3].sid;
+  sessions.clear();
+  requests.length = 0;
+  const second = await configure("after");
+  assert.equal(second.session.modelId, "after");
+  assert.deepEqual(requests.map(r => [r.method, r.status]), [["tools/call", 404], ["initialize", 200], ["notifications/initialized", 202], ["tools/call", 200]]);
+  assert.equal(requests[0].sid, old);
+  assert.notEqual(requests[3].sid, old);
+  assert.deepEqual(requests[0].params, requests[3].params);
+  // Force the TTL boundary without sleeping ten seconds.
+  adapter._mcpState.checkedAt -= 10_001;
+  requests.length = 0;
+  assert.equal(await adapter.detectCapabilityMode(), "mcp-full");
+  assert.deepEqual(requests.map(r => r.method), ["initialize", "notifications/initialized", "tools/list"]);
+});
+
+test("MCP tool failures expose the text and persistent HTTP 400 gets only one retry", async t => {
+  const { adapter, requests } = await startControlPlane(t);
+  await assert.rejects(adapter.configureSession({ sessionId: "s1", modelId: "unavailable" }), /model unavailable/);
+  assert.equal(requests.filter(r => r.method === "tools/call").length, 1);
+  requests.length = 0;
+  await assert.rejects(adapter.configureSession({ sessionId: "s1", modelId: "bad-request" }), /HTTP 400/);
+  assert.deepEqual(requests.map(r => r.status), [400, 200, 202, 400]);
+});
+
+for (const legacy of ["no-header", "method-not-found"]) {
+  test(`stateless MCP (${legacy}) uses config token when token file is missing`, async t => {
+    const { adapter, requests } = await startControlPlane(t, { legacy, tokenFile: false });
+    const result = await adapter.configureSession({ sessionId: "s", modelId: "legacy" });
+    assert.equal(result.session.model, "legacy");
+    assert.equal(result.capabilityMode, "mcp-full");
+    assert.deepEqual(requests.map(r => r.method), ["initialize", "tools/list", "tools/call"]);
+    assert.ok(requests.every(r => r.sid === undefined));
+  });
+}
+
+test("inactive MCP config does not contact control server", async t => {
+  const { adapter, requests } = await startControlPlane(t, { active: false });
+  assert.equal(await adapter.detectCapabilityMode(), "standard");
+  assert.equal(requests.length, 0);
+});
+
+test("host model changes broadcast replayable partial session.configured updates", t => {
+  const dir = makeTempDir("pi-model-events-");
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const engine = new RemoteControlEngine({ vault: new PluginVault(dir) });
+  const sent = [];
+  engine._broadcastToAllPeers = entry => sent.push(entry);
+  engine.handleHostModelChanged({ modelKey: "ignored" });
+  engine.handleHostModelChanged({ sessionId: "s1", modelKey: "provider/org/model", thinkingLevel: "high" });
+  engine.handleHostModelChanged({ sessionId: "s1", modelKey: "raw-id" });
+  engine.handleHostModelChanged({ sessionId: "s1", thinkingLevel: "off" });
+  const replay = engine.cursorLog.pull({ epoch: engine.cursorLog.epoch, sessionId: "s1" });
+  assert.deepEqual(sent, replay.events);
+  assert.ok(sent.every(e => e.event === "session.configured" && e.sessionId === "s1" && e.payload.sessionId === "s1"));
+  assert.deepEqual(sent.map(e => e.payload.session), [
+    { id: "s1", providerId: "provider", modelId: "org/model", model: "org/model", thinkingLevel: "high" },
+    { id: "s1", modelId: "raw-id", model: "raw-id" }, { id: "s1", thinkingLevel: "off" },
+  ]);
 });

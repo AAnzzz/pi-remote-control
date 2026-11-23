@@ -37,7 +37,7 @@ import {
   IdempotencyStore,
 } from "./vendor/protocol/index.mjs";
 
-const PLUGIN_VERSION = "1.0.0";
+const PLUGIN_VERSION = "1.0.1";
 const MAX_RECENT_TURNS = 128;
 
 function collectLanIpv4Addresses() {
@@ -1263,6 +1263,22 @@ export class RemoteControlEngine {
     }
   }
 
+  handleHostModelChanged(evt) {
+    if (!evt?.sessionId) return;
+    const { sessionId, thinkingLevel } = evt;
+    const key = typeof evt.modelKey === "string" ? evt.modelKey.trim() : "";
+    const slash = key.indexOf("/");
+    const providerId = slash >= 0 ? key.slice(0, slash) : "";
+    const modelId = key.slice(slash + 1);
+    const session = {
+      id: sessionId,
+      ...(providerId ? { providerId } : {}),
+      ...(modelId ? { modelId, model: modelId } : {}),
+      ...(thinkingLevel ? { thinkingLevel } : {}),
+    };
+    this._emitReplayable("session.configured", { sessionId, session }, sessionId);
+  }
+
   _startPendingPoller() {
     if (this.pendingPollTimer) clearInterval(this.pendingPollTimer);
     this.pendingPollTimer = setInterval(async () => {
@@ -1277,7 +1293,7 @@ export class RemoteControlEngine {
       } catch {
         // host busy or unavailable
       }
-    }, 1500);
+    }, 3000);
   }
 
   async getConsoleSnapshot() {

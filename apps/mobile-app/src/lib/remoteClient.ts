@@ -500,7 +500,7 @@ export class PiRemoteClient {
     };
   }
 
-  async call<T = any>(method: string, params: Record<string, unknown> = {}, idempotencyKey?: string): Promise<T> {
+  async call<T = any>(method: string, params: Record<string, unknown> = {}, idempotencyKey?: string, timeoutMs = 20_000): Promise<T> {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.host) {
       throw new Error("Host is offline");
     }
@@ -526,7 +526,7 @@ export class PiRemoteClient {
       const timer = setTimeout(() => {
         this.pendingRpc.delete(id);
         reject(new Error(`RPC timeout: ${method}`));
-      }, 20_000);
+      }, timeoutMs);
       this.pendingRpc.set(id, { resolve, reject, timer });
 
       this.ws!.send(
@@ -570,7 +570,7 @@ export class PiRemoteClient {
     return this.call<SessionSummary>("session.create", { projectPath, title, ...opts }, `create_${randomId(8)}`);
   }
   configureSession(params: SessionConfigureParams) {
-    return this.call<SessionConfigureResult>("session.configure", { ...params });
+    return this.call<SessionConfigureResult>("session.configure", { ...params }, undefined, 65_000);
   }
   listProviders() {
     return this.call<{ providers: ProviderSummary[] }>("providers.list");
@@ -585,13 +585,13 @@ export class PiRemoteClient {
     return this.call<TasksSnapshot>("tasks.list", sessionId ? { sessionId } : {});
   }
   resolveAsk(askId: string, sessionId: string, answers: Record<string, unknown>) {
-    return this.call<ResolutionResult>("ask.resolve", { askId, sessionId, answers });
+    return this.call<ResolutionResult>("ask.resolve", { askId, sessionId, answers }, undefined, 65_000);
   }
   resolvePlan(params: {
     proposalId: string; sessionId: string; turnId?: string; toolCallId?: string;
     action: "approve" | "reject"; targetPermissionMode?: string;
   }) {
-    return this.call<ResolutionResult>("plan.resolve", params);
+    return this.call<ResolutionResult>("plan.resolve", params, undefined, 65_000);
   }
   startTurn(sessionId: string, content: string, idempotencyKey = `turn_${randomId(8)}`) {
     return this.call<{ accepted: boolean; turnId?: string }>(
@@ -615,7 +615,9 @@ export class PiRemoteClient {
         decision,
         risk: item.risk,
         scope: item.risk === "high" ? "once" : scope,
-      }
+      },
+      undefined,
+      65_000
     );
   }
   getDiffSummary(projectPath: string) {

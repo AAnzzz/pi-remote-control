@@ -39,7 +39,7 @@ jobs:
           "$sdkmgr" "platform-tools" "platforms;android-35" "build-tools;35.0.0" >/dev/null
 
       - run: npm --prefix apps/mobile-app ci --workspaces=false --include=dev
-      - run: node --test apps/mobile-app/test/rn-crypto.test.mjs
+      - run: node --test apps/mobile-app/test/rn-crypto.test.mjs apps/mobile-app/test/markdown-parser.test.mjs
       - run: npm --prefix apps/mobile-app run typecheck
       - name: Verify Android native autolinking modules
         working-directory: apps/mobile-app

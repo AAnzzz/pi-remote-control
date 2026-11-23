@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import {
   Animated,
+  AppState,
   Dimensions,
   ScrollView,
   StyleSheet,
@@ -81,8 +82,10 @@ function MainConsole() {
   });
   const [themeMode, setThemeMode] = useState<ThemeMode>("dark");
   const [toastMsg, setToastMsg] = useState<string | null>(null);
+  const [configuringLabel, setConfiguringLabel] = useState<string | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
+  const configuringRef = useRef(false);
+  const reconnectingRef = useRef(false);
   const [hosts, setHosts] = useState<PairedHostRecord[]>([]);
   const [activeHostId, setActiveHostId] = useState<string | null>(null);
   const [connState, setConnState] = useState<ConnectionState>("offline");
@@ -126,15 +129,20 @@ function MainConsole() {
   const tabIndicatorX = useRef(new Animated.Value(0)).current;
   const activeSessionRef = useRef<SessionSummary | null>(null);
   activeSessionRef.current = activeSession;
+  const hostsRef = useRef<PairedHostRecord[]>([]);
+  hostsRef.current = hosts;
+  const activeHostIdRef = useRef<string | null>(null);
+  activeHostIdRef.current = activeHostId;
+  const connStateRef = useRef<ConnectionState>("offline");
+  connStateRef.current = connState;
 
   const palette = getPalette(themeMode);
 
-  const showToast = (msg: string) => {
+  const showToast = (msg: string, durationMs = 2600) => {
     setToastMsg(msg);
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-    toastTimerRef.current = setTimeout(() => setToastMsg(null), 2600);
+    toastTimerRef.current = setTimeout(() => setToastMsg(null), durationMs);
   };
-
   const switchTab = (next: TabName, openSettingsSub?: "providers" | "hosts" | "general") => {
     Haptics.selectionAsync().catch(() => {});
     setTab(next);
@@ -224,14 +232,54 @@ function MainConsole() {
     });
   }
 
+  const autoConnectHost = async (record: PairedHostRecord, silent = true) => {
+    if (reconnectingRef.current) return;
+    reconnectingRef.current = true;
+    try {
+      setActiveHostId(record.hostId);
+      await clientRef.current!.connectPairedHost(record);
+      await hydrateHost(activeSessionRef.current?.id || null);
+      if (!silent) showToast("已恢复 E2EE 加密连接");
+    } catch {
+      // Stay offline quietly; user can manually reconnect
+    } finally {
+      reconnectingRef.current = false;
+    }
+  };
+
   useEffect(() => {
     Promise.all([loadPairedHosts(), loadThemePreference()])
       .then(([savedHosts, savedTheme]) => {
         setHosts(savedHosts);
         setThemeMode(savedTheme);
+        if (savedHosts.length > 0 && connStateRef.current === "offline") {
+          autoConnectHost(savedHosts[0], true).catch(() => {});
+        }
       })
       .catch(() => {});
+
+    const appSub = AppState.addEventListener("change", (nextState) => {
+      if (nextState !== "active") return;
+      const curState = connStateRef.current;
+      if (curState === "online_direct" || curState === "online_relay") {
+        const curSess = activeSessionRef.current;
+        if (curSess) {
+          selectSession(curSess).catch(() => {});
+        }
+        return;
+      }
+      if (curState === "offline" || curState === "error") {
+        const target =
+          hostsRef.current.find((h) => h.hostId === activeHostIdRef.current) ||
+          hostsRef.current[0];
+        if (target) {
+          autoConnectHost(target, true).catch(() => {});
+        }
+      }
+    });
+
     return () => {
+      appSub.remove();
       clientRef.current?.disconnect();
     };
   }, []);
@@ -300,7 +348,7 @@ function MainConsole() {
     refreshTasks(s.id).catch(() => {});
   };
 
-  const hydrateHost = async () => {
+  const hydrateHost = async (preferredSessionId: string | null = null) => {
     const client = clientRef.current!;
     const info = await client.getHostInfo();
     setHostInfo(info);
@@ -316,13 +364,16 @@ function MainConsole() {
     const list = sessRes.sessions || [];
     setSessions(list);
     if (list.length > 0) {
-      await selectSession(list[0]);
+      const target = (preferredSessionId && list.find((s) => s.id === preferredSessionId)) || list[0];
+      await selectSession(target);
     } else {
       setActiveSession(null);
       setMessages([]);
       await refreshTasks();
     }
-    switchTab("chat");
+    if (!preferredSessionId) {
+      switchTab("chat");
+    }
   };
 
   const handlePairInvite = async (invite: PairingInvite) => {
@@ -371,6 +422,17 @@ function MainConsole() {
       showToast("请先选择一个会话");
       return;
     }
+    if (configuringRef.current) {
+      showToast("正在等待上一项配置同步完成，请稍候...");
+      return;
+    }
+    configuringRef.current = true;
+    const isMcpFull = hostInfo?.capabilityMode === "mcp-full";
+    setConfiguringLabel(
+      isMcpFull
+        ? "正在同步会话配置..."
+        : "等待电脑确认：请在 PI-Desktop 弹窗点击「允许一次」..."
+    );
     Haptics.selectionAsync().catch(() => {});
     try {
       const res = await clientRef.current!.configureSession({
@@ -378,6 +440,11 @@ function MainConsole() {
         mode: patch.mode ?? activeSession.mode ?? "agent",
         ...patch,
       });
+      if (res.capabilityMode && hostInfo && res.capabilityMode !== hostInfo.capabilityMode) {
+        setHostInfo((prev) =>
+          prev ? { ...prev, capabilityMode: res.capabilityMode as HostInfo["capabilityMode"] } : prev
+        );
+      }
       if (res.applied) {
         const updated: SessionSummary = {
           ...activeSession,
@@ -389,10 +456,17 @@ function MainConsole() {
         setSessions((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
         showToast("已同步至 PI-Desktop");
       } else {
-        showToast(res.message || "请在桌面端弹窗中确认配置变更");
+        showToast(
+          res.message ||
+            "桌面端未确认变更。请在电脑弹窗点「允许一次」，或以 PI_DESKTOP_MCP_CONTROL=1 启动 PI-Desktop",
+          4800
+        );
       }
     } catch (e: unknown) {
-      showToast(e instanceof Error ? e.message : "切换失败");
+      showToast(e instanceof Error ? e.message : "切换失败", 3600);
+    } finally {
+      configuringRef.current = false;
+      setConfiguringLabel(null);
     }
   };
 
@@ -546,6 +620,7 @@ function MainConsole() {
             backgroundTasks={backgroundTasks}
             sessionPending={activeSession ? pendingItems.filter((p) => p.sessionId === activeSession.id) : []}
             isRunning={isRunning}
+            configuringLabel={configuringLabel}
             onGoPair={() => switchTab("settings", "hosts")}
             onSendPrompt={handleSendPrompt}
             onOpenModePicker={() => setModeSheetOpen(true)}
@@ -565,6 +640,7 @@ function MainConsole() {
               setApprovalFeedback(null);
               setReviewItem(item);
             }}
+            onPressFilePath={(filePath) => showToast(filePath, 3800)}
           />
         ) : null}
 
@@ -613,6 +689,7 @@ function MainConsole() {
             palette={palette}
             themeMode={themeMode}
             initialSub={settingsSubKey.sub}
+            capabilityMode={hostInfo?.capabilityMode}
             hostSettings={hostSettings}
             providers={providers}
             activeSession={activeSession}
@@ -795,6 +872,13 @@ function MainConsole() {
         subtitle="决定 Agent 本回合的协作与规划方式"
         onClose={() => setModeSheetOpen(false)}
       >
+        {hostInfo?.capabilityMode !== "mcp-full" ? (
+          <View style={[styles.capHintBar, { backgroundColor: palette.warnSoft }]}>
+            <Text style={{ color: palette.warn, fontSize: 11.5, fontWeight: "600", lineHeight: 17 }}>
+              标准模式：切换后需在电脑弹窗点「允许一次」；以 PI_DESKTOP_MCP_CONTROL=1 启动可免弹窗直切
+            </Text>
+          </View>
+        ) : null}
         {SESSION_MODES.map((m) => {
           const cur = (activeSession?.mode || "agent") === m.id;
           return (
@@ -831,6 +915,13 @@ function MainConsole() {
         subtitle="控制文件编辑与命令执行的确认级别"
         onClose={() => setPermSheetOpen(false)}
       >
+        {hostInfo?.capabilityMode !== "mcp-full" ? (
+          <View style={[styles.capHintBar, { backgroundColor: palette.warnSoft }]}>
+            <Text style={{ color: palette.warn, fontSize: 11.5, fontWeight: "600", lineHeight: 17 }}>
+              标准模式：切换权限后需在电脑弹窗点「允许一次」；以 PI_DESKTOP_MCP_CONTROL=1 启动可免弹窗直切
+            </Text>
+          </View>
+        ) : null}
         {PERMISSION_MODES.map((p) => {
           const effective =
             !activeSession?.permissionMode || activeSession.permissionMode === "inherit"
@@ -894,6 +985,28 @@ function MainConsole() {
         }
         onClose={() => setModelSheetOpen(false)}
       >
+        <View
+          style={[
+            styles.capHintBar,
+            {
+              backgroundColor:
+                hostInfo?.capabilityMode === "mcp-full" ? palette.okSoft : palette.warnSoft,
+            },
+          ]}
+        >
+          <Text
+            style={{
+              color: hostInfo?.capabilityMode === "mcp-full" ? palette.ok : palette.warn,
+              fontSize: 11.5,
+              fontWeight: "600",
+              lineHeight: 17,
+            }}
+          >
+            {hostInfo?.capabilityMode === "mcp-full"
+              ? "● 已连接 MCP 完整控制面 · 点选即刻免弹窗切换"
+              : "标准模式：切换模型/推理需在电脑弹窗点「允许一次」；以 PI_DESKTOP_MCP_CONTROL=1 启动 PI-Desktop 可解锁手机免弹窗直切"}
+          </Text>
+        </View>
         <TextInput
           style={[
             styles.searchInput,
@@ -1087,10 +1200,12 @@ const styles = StyleSheet.create({
   toast: {
     position: "absolute",
     top: 12,
-    alignSelf: "center",
+    left: 20,
+    right: 20,
     paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderRadius: 999,
+    paddingVertical: 8,
+    borderRadius: 12,
+    alignItems: "center",
   },
   tabBar: {
     flexDirection: "row",
@@ -1135,4 +1250,5 @@ const styles = StyleSheet.create({
   thinkRow: { flexDirection: "row", gap: 5 },
   thinkPill: { paddingHorizontal: 9, paddingVertical: 4, borderRadius: 6, borderWidth: 1 },
   groupHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 4 },
+  capHintBar: { paddingHorizontal: 11, paddingVertical: 8, borderRadius: 9 },
 });

@@ -96,11 +96,14 @@ export async function onLoad(injectedPi = globalThis.pi) {
         engine.syncTurnCompletionFromHost(evt.sessionId, evt.turnId || null).catch(() => {});
       }
     };
+    const onModelChanged = (evt) => engine?.handleHostModelChanged(evt);
     pi.events.on("plugin:settingsChanged", onSettingsChanged);
     pi.events.on("session:turnEnded", onTurnEnded);
+    pi.events.on("session:modelChanged", onModelChanged);
     eventListeners.push(
       ["plugin:settingsChanged", onSettingsChanged],
-      ["session:turnEnded", onTurnEnded]
+      ["session:turnEnded", onTurnEnded],
+      ["session:modelChanged", onModelChanged]
     );
   }
 }
