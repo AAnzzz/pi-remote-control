@@ -2,11 +2,11 @@
   "schemaVersion": 1,
   "id": "local.pi-remote-app",
   "name": "PI Remote Control",
-  "version": "0.1.5",
+  "version": "1.0.0",
   "description": "End-to-end encrypted remote control bridge for PI-Desktop and its companion mobile app: live streaming output, Git unified diff review, pending approval inbox, and instant turn abort over LAN/Tailscale or self-hostable blind relay.",
   "author": "PI Remote Control Contributors",
   "license": "MIT",
-  "homepage": "https://github.com/pi-remote-control/pi-remote-control",
+  "homepage": "https://github.com/AAnzzz/pi-remote-control",
   "main": "main.js",
   "engines": {
     "piDesktop": ">=0.20.0"

@@ -37,7 +37,7 @@ import {
   IdempotencyStore,
 } from "./vendor/protocol/index.mjs";
 
-const PLUGIN_VERSION = "0.1.5";
+const PLUGIN_VERSION = "1.0.0";
 const MAX_RECENT_TURNS = 128;
 
 function collectLanIpv4Addresses() {

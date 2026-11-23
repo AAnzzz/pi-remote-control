@@ -9,6 +9,7 @@ import os from "node:os";
 import { PluginVault } from "./src/vault.mjs";
 import { PiHostAdapter } from "./src/host-adapter.mjs";
 import { RemoteControlEngine } from "./src/remote-engine.mjs";
+import { encodeQrCode } from "./src/qr-encoder.mjs";
 
 let activePi = null;
 let engine = null;
@@ -146,6 +147,14 @@ export async function onPanelInvoke(channel, payload = {}) {
       return engine.getConsoleSnapshot();
     case "remote.pair.create":
       return engine.createPairingInvite();
+    case "remote.pair.createWithQr": {
+      const invite = engine.createPairingInvite();
+      const inviteJson = JSON.stringify(invite);
+      const qr = encodeQrCode(inviteJson, { ecLevel: "L" });
+      return { invite, inviteJson, qr };
+    }
+    case "remote.qr.encode":
+      return encodeQrCode(payload.text, { ecLevel: payload.ecLevel });
     case "remote.pair.approve":
       return engine.approvePendingPairing(String(payload.pendingId || ""));
     case "remote.pair.reject":

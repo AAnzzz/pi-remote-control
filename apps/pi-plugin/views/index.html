@@ -249,6 +249,106 @@
     }
     .hidden { display: none !important; }
 
+    .qr-layout {
+      display: flex;
+      align-items: stretch;
+      gap: 18px;
+      flex-wrap: wrap;
+    }
+    .qr-stage {
+      position: relative;
+      width: fit-content;
+      max-width: 100%;
+      flex-shrink: 0;
+      padding: 14px;
+      border-radius: 14px;
+      background: #ffffff;
+      border: 1px solid rgba(0, 0, 0, 0.12);
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.16);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+    }
+    .qr-canvas {
+      display: block;
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
+    }
+    .qr-caption {
+      font-family: var(--mono);
+      font-size: 10.5px;
+      color: #52525b;
+      letter-spacing: 0.02em;
+    }
+    .qr-expired-mask {
+      position: absolute;
+      inset: 0;
+      border-radius: 14px;
+      background: rgba(13, 13, 16, 0.84);
+      backdrop-filter: blur(3px);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      color: #ffffff;
+      font-weight: 600;
+      font-size: 13px;
+    }
+    .qr-guide {
+      flex: 1;
+      min-width: 220px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .qr-steps {
+      margin: 0;
+      padding-left: 18px;
+      color: var(--muted);
+      font-size: 12.5px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .qr-steps strong { color: var(--text); font-weight: 600; }
+    .qr-ttl-track {
+      width: 100%;
+      height: 4px;
+      border-radius: 999px;
+      background: var(--surface-2);
+      overflow: hidden;
+    }
+    .qr-ttl-fill {
+      height: 100%;
+      width: 100%;
+      border-radius: 999px;
+      background: var(--ok);
+      transition: width 0.45s linear, background-color 0.25s var(--ease);
+    }
+    .qr-ttl-fill.warn { background: var(--warn); }
+    .qr-ttl-fill.expired { background: var(--danger); }
+    details.json-fold {
+      margin-top: 12px;
+      padding-top: 10px;
+      border-top: 1px solid var(--border);
+    }
+    details.json-fold summary {
+      list-style: none;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    details.json-fold summary::-webkit-details-marker { display: none; }
+    details.json-fold[open] summary { color: var(--text); margin-bottom: 8px; }
+
     @keyframes cardRise {
       from { opacity: 0; transform: translateY(8px); }
       to { opacity: 1; transform: translateY(0); }
@@ -275,9 +375,10 @@
     <header class="topbar">
       <div class="brand">
         <div class="brand-icon" aria-hidden="true">
-          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
-            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+          <svg width="20" height="20" viewBox="0 0 512 512" fill="none">
+            <line x1="196" y1="316" x2="316" y2="196" stroke="currentColor" stroke-width="44" stroke-linecap="round"/>
+            <circle cx="176" cy="336" r="64" fill="none" stroke="currentColor" stroke-width="40"/>
+            <circle cx="336" cy="176" r="64" fill="currentColor"/>
           </svg>
         </div>
         <div style="min-width:0;">
@@ -304,17 +405,45 @@
     <!-- One-time 120s Pairing Invite -->
     <section class="card hidden" id="invite-card">
       <div class="card-head">
-        <span class="card-title">一次性安全配对凭证</span>
+        <span class="card-title">扫码配对手机端（120 秒一次性凭证）</span>
         <span class="pill ok" id="invite-countdown">剩余 120s</span>
       </div>
-      <div class="muted" style="margin-bottom:9px;">
-        复制下方配对 JSON 到移动端 / Web 伴侣「设置 → 主机与配对」，核对 6 位短码一致后即建立 X25519 + AES-256-GCM 端到端加密通道。
+      <div class="qr-layout">
+        <div class="qr-stage">
+          <canvas class="qr-canvas" id="invite-qr-canvas" width="224" height="224" aria-label="PI-Desktop 配对二维码"></canvas>
+          <div class="qr-caption" id="invite-qr-meta">PI Remote · E2EE QR</div>
+          <div class="qr-expired-mask hidden" id="qr-expired-mask">
+            <span>配对二维码已过期</span>
+            <button class="btn primary" id="btn-regen-mask" type="button">重新生成</button>
+          </div>
+        </div>
+        <div class="qr-guide">
+          <div style="display:flex;flex-direction:column;gap:10px;">
+            <div class="qr-ttl-track">
+              <div class="qr-ttl-fill" id="invite-ttl-fill"></div>
+            </div>
+            <ol class="qr-steps">
+              <li>打开手机端 <strong>PI Remote</strong>，进入「<strong>设置 → 主机与配对</strong>」点击「<strong>扫码配对</strong>」。</li>
+              <li>对准左侧二维码扫描，手机将自动发起 <strong>X25519 + AES-256-GCM</strong> 加密握手。</li>
+              <li>确认上方弹出的 <strong>6 位安全短码</strong> 与手机屏幕一致后，点击「同意配对」即刻生效。</li>
+            </ol>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:8px;">
+            <div class="row">
+              <button class="btn primary" id="btn-regen-invite" type="button">刷新二维码</button>
+              <button class="btn" id="btn-copy-invite" type="button">复制配对串</button>
+            </div>
+            <div class="muted" id="copy-hint"></div>
+          </div>
+        </div>
       </div>
-      <textarea class="code-out" id="invite-json" readonly></textarea>
-      <div class="row" style="margin-top:9px;">
-        <button class="btn primary" id="btn-copy-invite" type="button">复制配对串</button>
-        <span class="muted" id="copy-hint"></span>
-      </div>
+      <details class="json-fold">
+        <summary>
+          <span>手动粘贴备用 · 查看原始配对 JSON</span>
+          <span class="pill" id="invite-bytes-pill">0 B</span>
+        </summary>
+        <textarea class="code-out" id="invite-json" readonly></textarea>
+      </details>
     </section>
 
     <!-- Network & Relay -->
@@ -542,29 +671,102 @@
         document.getElementById("host-sub").textContent = err.message || String(err);
       }
     }
+    function renderQrCanvas(qr) {
+      const canvas = document.getElementById("invite-qr-canvas");
+      const meta = document.getElementById("invite-qr-meta");
+      if (!qr || !Array.isArray(qr.rows) || !qr.size) {
+        meta.textContent = "二维码生成不可用，请使用下方配对 JSON";
+        return;
+      }
+      const quiet = 4;
+      const totalModules = qr.size + quiet * 2;
+      // Exact integer CSS px per module (>= 4px when space allows) so even 1x monitors decode cleanly.
+      const cssScale = Math.max(3, Math.floor(292 / totalModules));
+      const cssSize = totalModules * cssScale;
+      const dpr = Math.max(2, Math.ceil(window.devicePixelRatio || 2));
+      const pixelScale = cssScale * dpr;
+      const pixelSize = totalModules * pixelScale;
+      canvas.width = pixelSize;
+      canvas.height = pixelSize;
+      canvas.style.width = `${cssSize}px`;
+      canvas.style.height = `${cssSize}px`;
 
-    document.getElementById("btn-pair").addEventListener("click", async () => {
-      const invite = await invoke("remote.pair.create");
-      activeInvite = invite;
-      document.getElementById("invite-card").classList.remove("hidden");
-      document.getElementById("invite-json").value = JSON.stringify(invite);
-      if (countdownTimer) clearInterval(countdownTimer);
-      countdownTimer = setInterval(() => {
-        if (!activeInvite) return;
-        const left = Math.max(0, Math.ceil((activeInvite.expiresAt - Date.now()) / 1000));
-        document.getElementById("invite-countdown").textContent = left > 0 ? `剩余 ${left}s` : "已过期";
-        if (left <= 0) clearInterval(countdownTimer);
-      }, 500);
-      await refresh();
-    });
+      const ctx = canvas.getContext("2d");
+      ctx.imageSmoothingEnabled = false;
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, pixelSize, pixelSize);
+      ctx.fillStyle = "#000000";
+      for (let y = 0; y < qr.size; y++) {
+        const row = qr.rows[y];
+        for (let x = 0; x < qr.size; x++) {
+          if (row.charCodeAt(x) === 49) {
+            ctx.fillRect((x + quiet) * pixelScale, (y + quiet) * pixelScale, pixelScale, pixelScale);
+          }
+        }
+      }
+      meta.textContent = `ISO QR V${qr.version} · EC-${qr.ecLevel} · ${qr.size}×${qr.size}`;
+    }
+
+    async function generatePairingQr() {
+      const hint = document.getElementById("copy-hint");
+      hint.textContent = "正在生成加密配对二维码...";
+      try {
+        const res = await invoke("remote.pair.createWithQr");
+        const invite = res.invite || res;
+        const inviteJson = res.inviteJson || JSON.stringify(invite);
+        activeInvite = invite;
+        document.getElementById("invite-card").classList.remove("hidden");
+        document.getElementById("qr-expired-mask").classList.add("hidden");
+        document.getElementById("invite-json").value = inviteJson;
+        document.getElementById("invite-bytes-pill").textContent = `${new TextEncoder().encode(inviteJson).length} B`;
+        renderQrCanvas(res.qr);
+        hint.textContent = "二维码已就绪，请使用手机端 PI Remote 扫码";
+
+        const ttlTotalMs = Math.max(1000, invite.expiresAt - Date.now());
+        const updateCountdown = () => {
+          if (!activeInvite) return;
+          const remMs = Math.max(0, activeInvite.expiresAt - Date.now());
+          const left = Math.ceil(remMs / 1000);
+          const badge = document.getElementById("invite-countdown");
+          const fill = document.getElementById("invite-ttl-fill");
+          const pct = Math.max(0, Math.min(100, (remMs / ttlTotalMs) * 100));
+          fill.style.width = `${pct}%`;
+          if (left <= 0) {
+            badge.textContent = "已过期";
+            badge.className = "pill warn";
+            fill.className = "qr-ttl-fill expired";
+            document.getElementById("qr-expired-mask").classList.remove("hidden");
+            if (countdownTimer) clearInterval(countdownTimer);
+          } else if (left <= 25) {
+            badge.textContent = `剩余 ${left}s`;
+            badge.className = "pill warn";
+            fill.className = "qr-ttl-fill warn";
+          } else {
+            badge.textContent = `剩余 ${left}s`;
+            badge.className = "pill ok";
+            fill.className = "qr-ttl-fill";
+          }
+        };
+        updateCountdown();
+        if (countdownTimer) clearInterval(countdownTimer);
+        countdownTimer = setInterval(updateCountdown, 400);
+        await refresh();
+      } catch (err) {
+        hint.textContent = err?.message || String(err);
+      }
+    }
+
+    document.getElementById("btn-pair").addEventListener("click", generatePairingQr);
+    document.getElementById("btn-regen-invite").addEventListener("click", generatePairingQr);
+    document.getElementById("btn-regen-mask").addEventListener("click", generatePairingQr);
 
     document.getElementById("btn-copy-invite").addEventListener("click", async () => {
       const val = document.getElementById("invite-json").value;
       try {
         await navigator.clipboard.writeText(val);
-        document.getElementById("copy-hint").textContent = "已复制到剪贴板 ✓";
+        document.getElementById("copy-hint").textContent = "已复制配对串到剪贴板 ✓";
       } catch {
-        document.getElementById("copy-hint").textContent = "请手动全选复制";
+        document.getElementById("copy-hint").textContent = "请展开下方 JSON 手动全选复制";
       }
     });
 
