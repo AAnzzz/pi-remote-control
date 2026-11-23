@@ -30,7 +30,13 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@v3
+      - name: Verify preinstalled Android SDK & accept licenses
+        run: |
+          set -euo pipefail
+          echo "ANDROID_HOME=${ANDROID_HOME:-}"
+          sdkmgr="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | sort -V | tail -1)"
+          yes | "$sdkmgr" --licenses >/dev/null 2>&1 || true
+          "$sdkmgr" "platform-tools" "platforms;android-35" "build-tools;35.0.0" >/dev/null
 
       - run: npm --prefix apps/mobile-app install --include=dev
       - run: node --test apps/mobile-app/test/rn-crypto.test.mjs
